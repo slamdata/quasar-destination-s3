@@ -21,7 +21,7 @@ import slamdata.Predef.{Stream => _, _}
 import quasar.api.destination.{Destination, DestinationType, ResultSink}
 import quasar.api.push.RenderConfig
 
-import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, ExitCase}
+import cats.effect.{Concurrent, ConcurrentEffect, ContextShift}
 import cats.syntax.functor._
 import cats.syntax.flatMap._
 import eu.timepit.refined.auto._
@@ -57,24 +57,13 @@ class S3Destination[F[_]: ConcurrentEffect: ContextShift](
   private def csvSink = ResultSink.csv[F](RenderConfig.Csv()) {
     case (path, _, bytes) => {
       val key = posixCodec.printPath(path.toPath).drop(1)
-      val upload = for {
-        startUploadResponse <- Stream.eval(
-          S3Destination.startUpload(client, config.bucket, key))
-        uid = startUploadResponse.uploadId
-        parts <- S3Destination.streamToList(
-          S3Destination.uploadParts(client, bytes, uid, PartSize, config.bucket, key))
-        upload = Stream.eval(S3Destination.completeUpload(client, uid, config.bucket, key, parts))
-        _ <- upload.onFinalizeCase {
-          case ExitCase.Completed =>
-            Concurrent[F].unit
-          case ExitCase.Canceled =>
-            S3Destination.abortUpload(client, uid, config.bucket, key).void
-          case ExitCase.Error(e) =>
-            S3Destination.abortUpload(client, uid, config.bucket, key) >> Concurrent[F].raiseError(e).void
-        }
-      } yield ()
 
-      upload.compile.drain
+      for {
+        startUploadResponse <- S3Destination.startUpload(client, config.bucket, key)
+        uid = startUploadResponse.uploadId
+        parts <- S3Destination.uploadParts(client, bytes, uid, PartSize, config.bucket, key)
+        completeUploadResponse <- S3Destination.completeUpload(client, uid, config.bucket, key, parts)
+      } yield ()
     }
   }
 }
@@ -83,11 +72,6 @@ object S3Destination {
   def apply[F[_]: ConcurrentEffect: ContextShift](client: S3AsyncClient, config: S3Config)
       : S3Destination[F] =
     new S3Destination[F](client, config)
-
-  private def streamToList[F[_], A](st: Stream[F, A]): Stream[F, List[A]] =
-    st.fold(List.empty[A]) {
-      case (acc, part) => acc :+ part
-    }
 
   private def startUpload[F[_]: Concurrent](client: S3AsyncClient, bucket: String, key: String)
       : F[CreateMultipartUploadResponse] =
@@ -100,8 +84,8 @@ object S3Destination {
     uploadId: String,
     minChunkSize: Int,
     bucket: String,
-    key: String): Stream[F, CompletedPart] =
-    bytes.chunkMin(minChunkSize).zipWithIndex evalMap {
+    key: String): F[List[CompletedPart]] =
+    (bytes.chunkMin(minChunkSize).zipWithIndex evalMap {
       case (byteChunk, n) => {
         // parts numbers must start at 1
         val partNumber = Int.box((n + 1).toInt)
@@ -124,7 +108,7 @@ object S3Destination {
         uploadPartResponse.map(response =>
           CompletedPart.builder.partNumber(partNumber).eTag(response.eTag).build)
       }
-    }
+    }).compile.toList
 
   private def completeUpload[F[_]: Concurrent](
     client: S3AsyncClient,
