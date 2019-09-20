@@ -21,7 +21,6 @@ import slamdata.Predef.{Stream => _, _}
 import quasar.api.destination.{Destination, DestinationType, ResultSink}
 
 import cats.effect.{ConcurrentEffect, ContextShift}
-import cats.syntax.flatMap._
 import cats.syntax.functor._
 import eu.timepit.refined.auto._
 import fs2.Stream
@@ -31,9 +30,10 @@ import scalaz.NonEmptyList
 import software.amazon.awssdk.core.async.AsyncRequestBody
 import software.amazon.awssdk.services.s3.S3AsyncClient
 import software.amazon.awssdk.services.s3.model.{
-  CompletedPart,
-  CompletedMultipartUpload,
+  CompleteMultipartUploadResponse,
   CompleteMultipartUploadRequest,
+  CompletedMultipartUpload,
+  CompletedPart,
   CreateMultipartUploadRequest,
   UploadPartRequest
 }
@@ -53,79 +53,76 @@ class S3Destination[F[_]: ConcurrentEffect: ContextShift](
     case (path, _, bytes) => {
       val F = ConcurrentEffect[F]
 
-      val key = posixCodec.printPath(path.toPath)
+      val key = posixCodec.printPath(path.toPath).drop(1)
 
-      val request =
-        CreateMultipartUploadRequest.builder
-          .bucket(config.bucket)
-          .key(key)
-          .build
+      def startUpload: F[String] = {
+        val request =
+          CreateMultipartUploadRequest.builder
+            .bucket(config.bucket)
+            .key(key)
+            .build
 
-      // WE ARE CREATING MORE THAN ONE UPLOAD. THAT's WHY IT DOESNT WORK
-      // ONE TO UPLOAD AND ANOTHER ONE TO CLOSE THE UPLOAD
-      val uploadId: F[String] =
         javaCompletableToConcurrent(F.delay(client.createMultipartUpload(request)))
           .map(_.uploadId)
-
-      val uploadParts: Stream[F, CompletedPart] =
-        Stream.eval(uploadId).flatMap(uid =>
-          bytes.chunkN(PartSize).zipWithIndex.evalMap {
-            case (byteChunk, n) => {
-              // parts numbers start at 1
-              val partNumber = Int.box((n + 1).toInt)
-              println(s"Upload Id: $uid")
-              println(s"Processing part $partNumber")
-
-              val uploadPartRequest =
-                UploadPartRequest.builder
-                  .bucket(config.bucket)
-                  .uploadId(uid)
-                  .key(key)
-                  .partNumber(partNumber)
-                  .contentLength(Long.box(byteChunk.size.toLong))
-                  .build
-
-              val uploadPartResponse =
-                javaCompletableToConcurrent(F.delay(
-                  client.uploadPart(
-                    uploadPartRequest,
-                    AsyncRequestBody.fromByteBuffer(byteChunk.toByteBuffer))))
-
-              val eTag = uploadPartResponse.map(_.eTag)
-
-              val completedPart = eTag.map(et =>
-                CompletedPart.builder.partNumber(partNumber).eTag(et).build)
-
-              completedPart
-            }
-          })
-
-      val uploadPartsList = uploadParts.fold(List.empty[CompletedPart]) {
-        case (acc, part) => acc :+ part
       }
 
-      val completedMultipartUpload =
-        uploadPartsList.flatMap(parts => for {
-          _ <- Stream.eval(F.delay(println(s"Parts: $parts")))
-          cmu = CompletedMultipartUpload.builder.parts(parts :_*).build
-        } yield cmu)
+      def uploadParts(uploadId: String): Stream[F, CompletedPart] =
+        bytes.chunkN(PartSize).zipWithIndex evalMap {
+          case (byteChunk, n) => {
+            // parts numbers must start at 1
+            val partNumber = Int.box((n + 1).toInt)
 
-      val complete = completedMultipartUpload evalMap { multipartUpload =>
+            val uploadPartRequest =
+              UploadPartRequest.builder
+                .bucket(config.bucket)
+                .uploadId(uploadId)
+                .key(key)
+                .partNumber(partNumber)
+                .contentLength(Long.box(byteChunk.size.toLong))
+                .build
+
+            val uploadPartResponse =
+              javaCompletableToConcurrent(F.delay(
+                client.uploadPart(
+                  uploadPartRequest,
+                  AsyncRequestBody.fromByteBuffer(byteChunk.toByteBuffer))))
+
+            val eTag = uploadPartResponse.map(_.eTag)
+
+            val completedPart = eTag.map(et =>
+              CompletedPart.builder.partNumber(partNumber).eTag(et).build)
+
+            completedPart
+          }
+        }
+
+      def streamToList[A](st: Stream[F, A]): Stream[F, List[A]] =
+        st.fold(List.empty[A]) {
+          case (acc, part) => acc :+ part
+        }
+
+      def completeUpload(uploadId: String, parts: List[CompletedPart])
+          : F[CompleteMultipartUploadResponse] = {
+        val multipartUpload =
+          CompletedMultipartUpload.builder.parts(parts :_*).build
+
         val completeMultipartUploadRequest =
-          uploadId.map(uid =>
-            CompleteMultipartUploadRequest.builder
-              .bucket(config.bucket)
-              .key(key)
-              .uploadId(uid)
-              .multipartUpload(multipartUpload)
-              .build)
+          CompleteMultipartUploadRequest.builder
+            .bucket(config.bucket)
+            .key(key)
+            .uploadId(uploadId)
+            .multipartUpload(multipartUpload)
+            .build
 
         javaCompletableToConcurrent(
-          completeMultipartUploadRequest.flatMap(
-            request => F.delay(client.completeMultipartUpload(request))))
+          F.delay(client.completeMultipartUpload(completeMultipartUploadRequest)))
       }
 
-      complete.compile.drain
+      (for {
+        uid <- Stream.eval(startUpload)
+        parts <- streamToList(uploadParts(uid))
+        _ <- Stream.eval(completeUpload(uid, parts))
+      } yield ()).compile.drain
     }
   }
 }

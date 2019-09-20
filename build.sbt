@@ -36,7 +36,6 @@ lazy val core = project
     quasarPluginDependencies ++= Seq(
       "io.argonaut"  %% "argonaut" % ArgonautVersion,
       "co.fs2" %% "fs2-core" % Fs2Version,
-      "co.fs2" %% "fs2-reactive-streams" % Fs2Version,
       "io.monix" %% "monix-catnap" % MonixVersion,
       "software.amazon.awssdk" % "netty-nio-client" % AwsSdkVersion,
       // We depend on both v1 and v2 S3 SDKs because of this ticket:
