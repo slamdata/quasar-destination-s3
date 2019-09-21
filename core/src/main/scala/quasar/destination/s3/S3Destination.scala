@@ -21,7 +21,7 @@ import slamdata.Predef.{Stream => _, _}
 import quasar.api.destination.{Destination, DestinationType, ResultSink}
 import quasar.api.push.RenderConfig
 
-import cats.effect.{Concurrent, ConcurrentEffect, ContextShift}
+import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, ExitCase}
 import cats.syntax.functor._
 import cats.syntax.flatMap._
 import eu.timepit.refined.auto._
@@ -58,12 +58,18 @@ class S3Destination[F[_]: ConcurrentEffect: ContextShift](
     case (path, _, bytes) => {
       val key = posixCodec.printPath(path.toPath).drop(1)
 
-      for {
-        startUploadResponse <- S3Destination.startUpload(client, config.bucket, key)
-        uid = startUploadResponse.uploadId
-        parts <- S3Destination.uploadParts(client, bytes, uid, PartSize, config.bucket, key)
-        completeUploadResponse <- S3Destination.completeUpload(client, uid, config.bucket, key, parts)
-      } yield ()
+      Concurrent[F].bracketCase[CreateMultipartUploadResponse, Unit](
+        S3Destination.startUpload(client, config.bucket, key))(createMultipartUploadResponse => for {
+          parts <- S3Destination.uploadParts(
+            client, bytes, createMultipartUploadResponse.uploadId, PartSize, config.bucket, key)
+          _ <- S3Destination.completeUpload(
+            client, createMultipartUploadResponse.uploadId, config.bucket, key, parts)
+        } yield ()) {
+        case (createMultipartUploadResponse, ExitCase.Canceled | ExitCase.Error(_)) =>
+          S3Destination.abortUpload(client, createMultipartUploadResponse.uploadId, config.bucket, key).void
+        case (_, ExitCase.Completed) =>
+          Concurrent[F].unit
+      }
     }
   }
 }
