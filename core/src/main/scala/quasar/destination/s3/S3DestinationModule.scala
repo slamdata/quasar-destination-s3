@@ -16,6 +16,8 @@
 
 package quasar.destination.s3
 
+import slamdata.Predef._
+
 import quasar.api.destination.DestinationError
 import quasar.api.destination.DestinationError.InitializationError
 import quasar.api.destination.{Destination, DestinationType}
@@ -23,33 +25,74 @@ import quasar.connector.{DestinationModule, MonadResourceErr}
 
 import scala.util.Either
 
-import argonaut.Json
+import argonaut.{Argonaut, Json}, Argonaut._
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.services.s3.S3AsyncClient
 import software.amazon.awssdk.regions.{Region => AwsRegion}
-import cats.effect.{ConcurrentEffect, ContextShift, Resource, Sync, Timer}
+import software.amazon.awssdk.services.s3.model.{
+  HeadBucketRequest,
+  NoSuchBucketException,
+  S3Exception
+}
+import cats.Eq
+import cats.data.EitherT
+import cats.effect.{Async, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
+import cats.instances.int._
+import cats.syntax.applicativeError._
 import cats.syntax.either._
+import cats.syntax.functor._
 import eu.timepit.refined.auto._
-import scalaz.NonEmptyList
+import monix.catnap.syntax._
 
 object S3DestinationModule extends DestinationModule {
+  // Minimum 10MiB multipart uploads
+  private val PartSize = 10 * 1024 * 1024
+  private val Redacted = "<REDACTED>"
+  private val RedactedCreds = S3Credentials(AccessKey(Redacted), SecretKey(Redacted), Region(Redacted))
+
   def destinationType = DestinationType("s3", 1L)
 
-  def sanitizeDestinationConfig(config: Json) = config
+  def sanitizeDestinationConfig(config: Json) = config.as[S3Config].result match {
+    case Left(_) => Json.jEmptyObject // don't expose credentials, even if we fail to decode the configuration.
+    case Right(cfg) => cfg.copy(credentials = RedactedCreds).asJson
+  }
 
   def destination[F[_]: ConcurrentEffect: ContextShift: MonadResourceErr: Timer](
       config: Json)
       : Resource[F, Either[InitializationError[Json], Destination[F]]] = {
 
-    val decodedConfig = config.as[S3Config].toEither.leftMap {
-      case (err, _) => DestinationError.invalidConfiguration((destinationType, config, NonEmptyList(err)))
+    val configOrError = config.as[S3Config].toEither.leftMap {
+      case (err, _) =>
+        DestinationError.malformedConfiguration((destinationType, config, err))
     }
 
-    decodedConfig.fold(
-      err => Resource.pure(err.asLeft),
-      config => mkClient(config).map(client => S3Destination[F](client, config).asRight))
+    val sanitizedConfig = sanitizeDestinationConfig(config)
+
+    (for {
+      cfg <- EitherT(Resource.pure[F, Either[InitializationError[Json], S3Config]](configOrError))
+      client <- EitherT(mkClient(cfg).map(_.asRight[InitializationError[Json]]))
+      _ <- EitherT(Resource.liftF(isLive(client, sanitizedConfig, cfg.bucket)))
+    } yield (S3Destination(client, cfg, PartSize): Destination[F])).value
   }
+
+  private def isLive[F[_]: Async](client: S3AsyncClient, originalConfig: Json, bucket: String)
+      : F[Either[InitializationError[Json], Unit]] =
+    Async[F].delay(client.headBucket(HeadBucketRequest.builder.bucket(bucket).build))
+      .futureLift.as(().asRight[InitializationError[Json]]) recover {
+        case (e: NoSuchBucketException) =>
+          DestinationError.connectionFailed((
+            destinationType,
+            originalConfig,
+            e)).asLeft
+        // eq syntax is buggy in this case. Don't use it. It will lock-up the thread handling the request
+        // in slamdata-backend
+        case (e: S3Exception) if Eq[Int].eqv(403, e.statusCode) =>
+          DestinationError.accessDenied((
+            destinationType,
+            originalConfig,
+            "Access denied")).asLeft
+      }
 
   private def mkClient[F[_]: Sync](cfg: S3Config): Resource[F, S3AsyncClient] = {
     val client =

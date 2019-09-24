@@ -45,28 +45,33 @@ import software.amazon.awssdk.services.s3.model.{
 
 class S3Destination[F[_]: ConcurrentEffect: ContextShift](
   client: S3AsyncClient,
-  config: S3Config) extends Destination[F] {
+  config: S3Config,
+  partSize: Int) extends Destination[F] {
+
+  import S3Destination.{
+    abortUpload,
+    completeUpload,
+    startUpload,
+    uploadParts
+  }
+
   def destinationType: DestinationType = DestinationType("s3", 1L)
 
   def sinks: NonEmptyList[ResultSink[F]] =
     NonEmptyList(csvSink)
 
-  // Minimum 10MiB multipart uploads
-  private val PartSize = 10 * 1024 * 1024
-
   private def csvSink = ResultSink.csv[F](RenderConfig.Csv()) {
     case (path, _, bytes) => {
       val key = posixCodec.printPath(path.toPath).drop(1)
 
-      Concurrent[F].bracketCase[CreateMultipartUploadResponse, Unit](
-        S3Destination.startUpload(client, config.bucket, key))(createMultipartUploadResponse => for {
-          parts <- S3Destination.uploadParts(
-            client, bytes, createMultipartUploadResponse.uploadId, PartSize, config.bucket, key)
-          _ <- S3Destination.completeUpload(
-            client, createMultipartUploadResponse.uploadId, config.bucket, key, parts)
+      Concurrent[F].bracketCase(
+        startUpload(client, config.bucket, key))(createResponse =>
+        for {
+          parts <- uploadParts(client, bytes, createResponse.uploadId, partSize, config.bucket, key)
+          _ <- completeUpload(client, createResponse.uploadId, config.bucket, key, parts)
         } yield ()) {
-        case (createMultipartUploadResponse, ExitCase.Canceled | ExitCase.Error(_)) =>
-          S3Destination.abortUpload(client, createMultipartUploadResponse.uploadId, config.bucket, key).void
+        case (createResponse, ExitCase.Canceled | ExitCase.Error(_)) =>
+          abortUpload(client, createResponse.uploadId, config.bucket, key).void
         case (_, ExitCase.Completed) =>
           Concurrent[F].unit
       }
@@ -75,9 +80,11 @@ class S3Destination[F[_]: ConcurrentEffect: ContextShift](
 }
 
 object S3Destination {
-  def apply[F[_]: ConcurrentEffect: ContextShift](client: S3AsyncClient, config: S3Config)
-      : S3Destination[F] =
-    new S3Destination[F](client, config)
+  def apply[F[_]: ConcurrentEffect: ContextShift](
+    client: S3AsyncClient,
+    config: S3Config,
+    partSize: Int): S3Destination[F] =
+    new S3Destination[F](client, config, partSize)
 
   private def startUpload[F[_]: Concurrent](client: S3AsyncClient, bucket: String, key: String)
       : F[CreateMultipartUploadResponse] =

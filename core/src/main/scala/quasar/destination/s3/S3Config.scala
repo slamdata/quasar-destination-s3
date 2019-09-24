@@ -18,7 +18,7 @@ package quasar.destination.s3
 
 import slamdata.Predef._
 
-import argonaut.{Argonaut, DecodeJson, DecodeResult}, Argonaut._
+import argonaut.{Argonaut, DecodeJson, DecodeResult, EncodeJson, Json}, Argonaut._
 import com.amazonaws.services.s3.AmazonS3URI
 
 final case class S3Config(bucket: String, credentials: S3Credentials)
@@ -44,6 +44,17 @@ object S3Config {
         DecodeResult.fail("Unable to parse bucket from URL", c.history))(DecodeResult.ok(_))
       creds <- c.downField("credentials").as[S3Credentials]
     } yield S3Config(validatedBucket, creds))
+
+  private implicit val s3CredentialsEncodeJson: EncodeJson[S3Credentials] =
+    EncodeJson(creds => Json.obj(
+      "accessKey" := creds.accessKey.value,
+      "secretKey" := creds.secretKey.value,
+      "region" := creds.region.value))
+
+  implicit val s3ConfigEncodeJson: EncodeJson[S3Config] =
+    EncodeJson(config => Json.obj(
+      "bucket" := config.bucket,
+      "credentials" := config.credentials.asJson))
 
   private def bucketName(strUrl: String): Option[String] =
     Option((new AmazonS3URI(strUrl)).getBucket)

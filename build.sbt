@@ -40,6 +40,7 @@ lazy val core = project
       "software.amazon.awssdk" % "netty-nio-client" % AwsSdkVersion,
       // We depend on both v1 and v2 S3 SDKs because of this ticket:
       // https://github.com/aws/aws-sdk-java-v2/issues/272
+      // Depending on both is the recommended workaround
       "software.amazon.awssdk" % "s3" % AwsSdkVersion,
       "com.amazonaws" % "aws-java-sdk-s3" % AwsV1SdkVersion),
     libraryDependencies ++= Seq(
