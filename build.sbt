@@ -44,6 +44,10 @@ lazy val core = project
       "software.amazon.awssdk" % "s3" % AwsSdkVersion,
       "com.amazonaws" % "aws-java-sdk-s3" % AwsV1SdkVersion),
     libraryDependencies ++= Seq(
-      "org.specs2" %% "specs2-core" % SpecsVersion % Test),
+      "org.specs2" %% "specs2-core" % SpecsVersion % Test,
+      "com.slamdata" %% "quasar-foundation" % QuasarVersion,
+      "com.slamdata" %% "quasar-foundation" % QuasarVersion % Test classifier "tests",
+      "org.specs2" %% "specs2-scalacheck" % SpecsVersion % Test,
+      "org.specs2" %% "specs2-scalaz" % SpecsVersion % Test),
     publishAsOSSProject := true)
   .enablePlugins(AutomateHeaderPlugin, QuasarPlugin)

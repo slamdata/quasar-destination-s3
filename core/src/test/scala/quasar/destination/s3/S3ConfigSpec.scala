@@ -16,13 +16,8 @@
 
 package quasar.destination.s3
 
-import slamdata.Predef._
-
-import scala.util.Either
-
 import argonaut.{Argonaut, DecodeJson, Json}, Argonaut._
 import org.specs2.mutable.Specification
-import cats.syntax.either._
 
 object S3ConfigSpec extends Specification {
   "parses a virtual host-style bucket" >> {

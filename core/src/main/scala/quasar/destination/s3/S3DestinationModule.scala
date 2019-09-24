@@ -44,6 +44,7 @@ import cats.syntax.either._
 import cats.syntax.functor._
 import eu.timepit.refined.auto._
 import monix.catnap.syntax._
+import scalaz.NonEmptyList
 
 object S3DestinationModule extends DestinationModule {
   // Minimum 10MiB multipart uploads
@@ -80,11 +81,11 @@ object S3DestinationModule extends DestinationModule {
       : F[Either[InitializationError[Json], Unit]] =
     Async[F].delay(client.headBucket(HeadBucketRequest.builder.bucket(bucket).build))
       .futureLift.as(().asRight[InitializationError[Json]]) recover {
-        case (e: NoSuchBucketException) =>
-          DestinationError.connectionFailed((
+        case (_: NoSuchBucketException) =>
+          DestinationError.invalidConfiguration((
             destinationType,
             originalConfig,
-            e)).asLeft
+            NonEmptyList("Bucket does not exist"))).asLeft
         // eq syntax is buggy in this case. Don't use it. It will lock-up the thread handling the request
         // in slamdata-backend
         case (e: S3Exception) if Eq[Int].eqv(403, e.statusCode) =>

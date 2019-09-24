@@ -15,3 +15,5 @@ target/
 /pubring.pgp.enc
 /scripts/readVersion
 /secring.pgp.enc
+
+testCredentials.json

@@ -30,7 +30,7 @@ final case class Region(value: String)
 final case class S3Credentials(accessKey: AccessKey, secretKey: SecretKey, region: Region)
 
 object S3Config {
-  private implicit val s3CredentialsDecodeJson: DecodeJson[S3Credentials] =
+  implicit val s3CredentialsDecodeJson: DecodeJson[S3Credentials] =
     DecodeJson(c => for {
       accessKey <- c.downField("accessKey").as[String]
       secretKey <- c.downField("secretKey").as[String]
