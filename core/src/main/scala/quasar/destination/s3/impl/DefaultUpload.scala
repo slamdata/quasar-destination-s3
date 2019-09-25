@@ -41,7 +41,7 @@ import software.amazon.awssdk.services.s3.model.{
 }
 
 final case class DefaultUpload[F[_]: Concurrent](client: S3AsyncClient, partSize: Int) extends Upload[F] {
-  def push(bytes: Stream[F, Byte], bucket: Bucket, key: ObjectKey): F[Unit] =
+  def upload(bytes: Stream[F, Byte], bucket: Bucket, key: ObjectKey): F[Unit] =
     Concurrent[F].bracketCase(
       startUpload(client, bucket, key))(createResponse =>
       for {

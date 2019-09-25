@@ -44,7 +44,7 @@ final class S3Destination[F[_]: Concurrent: MonadResourceErr](bucket: Bucket, up
       for {
         afile <- ensureAbsFile(path)
         key = ObjectKey(Path.posixCodec.printPath(nestResourcePath(afile)).drop(1))
-        _ <- uploadImpl.push(bytes, bucket, key)
+        _ <- uploadImpl.upload(bytes, bucket, key)
       } yield ()
   }
 
