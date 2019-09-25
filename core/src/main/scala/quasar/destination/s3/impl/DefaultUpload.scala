@@ -16,7 +16,7 @@
 
 package quasar.destination.s3.impl
 
-import quasar.destination.s3.{Bucket, Upload}
+import quasar.destination.s3.{Bucket, ObjectKey, Upload}
 
 import slamdata.Predef._
 
@@ -41,7 +41,7 @@ import software.amazon.awssdk.services.s3.model.{
 }
 
 final case class DefaultUpload[F[_]: Concurrent](client: S3AsyncClient, partSize: Int) extends Upload[F] {
-  def push(bytes: Stream[F, Byte], bucket: Bucket, key: String): F[Unit] =
+  def push(bytes: Stream[F, Byte], bucket: Bucket, key: ObjectKey): F[Unit] =
     Concurrent[F].bracketCase(
       startUpload(client, bucket, key))(createResponse =>
       for {
@@ -54,10 +54,10 @@ final case class DefaultUpload[F[_]: Concurrent](client: S3AsyncClient, partSize
         Concurrent[F].unit
     }
 
-  private def startUpload(client: S3AsyncClient, bucket: Bucket, key: String)
+  private def startUpload(client: S3AsyncClient, bucket: Bucket, key: ObjectKey)
       : F[CreateMultipartUploadResponse] =
     Concurrent[F].delay(client.createMultipartUpload(
-      CreateMultipartUploadRequest.builder.bucket(bucket.value).key(key).build)).futureLift
+      CreateMultipartUploadRequest.builder.bucket(bucket.value).key(key.value).build)).futureLift
 
   private def uploadParts(
     client: S3AsyncClient,
@@ -65,7 +65,7 @@ final case class DefaultUpload[F[_]: Concurrent](client: S3AsyncClient, partSize
     uploadId: String,
     minChunkSize: Int,
     bucket: Bucket,
-    key: String): F[List[CompletedPart]] =
+    key: ObjectKey): F[List[CompletedPart]] =
     (bytes.chunkMin(minChunkSize).zipWithIndex evalMap {
       case (byteChunk, n) => {
         // parts numbers must start at 1
@@ -75,7 +75,7 @@ final case class DefaultUpload[F[_]: Concurrent](client: S3AsyncClient, partSize
           UploadPartRequest.builder
             .bucket(bucket.value)
             .uploadId(uploadId)
-            .key(key)
+            .key(key.value)
             .partNumber(partNumber)
             .contentLength(Long.box(byteChunk.size.toLong))
             .build
@@ -95,7 +95,7 @@ final case class DefaultUpload[F[_]: Concurrent](client: S3AsyncClient, partSize
     client: S3AsyncClient,
     uploadId: String,
     bucket: Bucket,
-    key: String,
+    key: ObjectKey,
     parts: List[CompletedPart]): F[CompleteMultipartUploadResponse] = {
     val multipartUpload =
       CompletedMultipartUpload.builder.parts(parts :_*).build
@@ -103,7 +103,7 @@ final case class DefaultUpload[F[_]: Concurrent](client: S3AsyncClient, partSize
     val completeMultipartUploadRequest =
       CompleteMultipartUploadRequest.builder
         .bucket(bucket.value)
-        .key(key)
+        .key(key.value)
         .uploadId(uploadId)
         .multipartUpload(multipartUpload)
         .build
@@ -116,13 +116,13 @@ final case class DefaultUpload[F[_]: Concurrent](client: S3AsyncClient, partSize
     client: S3AsyncClient,
     uploadId: String,
     bucket: Bucket,
-    key: String): F[AbortMultipartUploadResponse] =
+    key: ObjectKey): F[AbortMultipartUploadResponse] =
     Concurrent[F].delay(
       client.abortMultipartUpload(
         AbortMultipartUploadRequest
           .builder
           .uploadId(uploadId)
           .bucket(bucket.value)
-          .key(key)
+          .key(key.value)
           .build)).futureLift
 }

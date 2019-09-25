@@ -20,6 +20,8 @@ import slamdata.Predef._
 
 import fs2.Stream
 
+final case class ObjectKey(value: String)
+
 trait Upload[F[_]] {
-  def push(bytes: Stream[F, Byte], bucket: Bucket, key: String): F[Unit]
+  def push(bytes: Stream[F, Byte], bucket: Bucket, key: ObjectKey): F[Unit]
 }
