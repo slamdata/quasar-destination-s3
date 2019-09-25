@@ -69,6 +69,18 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
     }
   }
 
+  "uploads results" >>* {
+    for {
+      (upload, ref) <- MockUpload.empty
+      testPath = ResourcePath.root() / ResourceName("foo") / ResourceName("bar.csv")
+      bytes = Stream("push this").through(text.utf8Encode)
+      _ <- run(upload, testPath, bytes)
+      currentStatus <- ref.get
+    } yield {
+      currentStatus.get(ObjectKey("foo/bar/bar.csv")) must beSome("push this")
+    }
+  }
+
   private def run(upload: Upload[IO], path: ResourcePath, bytes: Stream[IO, Byte]): IO[Unit] =
     findCsvSink(S3Destination[IO](TestBucket, upload).sinks.asCats).fold(
       IO.raiseError[Unit](new Exception("Could not find CSV sink in S3Destination"))
