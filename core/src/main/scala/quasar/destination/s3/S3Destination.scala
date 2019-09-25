@@ -32,7 +32,7 @@ import eu.timepit.refined.auto._
 import pathy.Path
 import scalaz.NonEmptyList
 
-class S3Destination[F[_]: Concurrent: MonadResourceErr](bucket: Bucket, upload: Upload[F])
+final class S3Destination[F[_]: Concurrent: MonadResourceErr](bucket: Bucket, uploadImpl: Upload[F])
     extends Destination[F] {
   def destinationType: DestinationType = DestinationType("s3", 1L)
 
@@ -44,7 +44,7 @@ class S3Destination[F[_]: Concurrent: MonadResourceErr](bucket: Bucket, upload: 
       for {
         afile <- ensureAbsFile(path)
         key = ObjectKey(Path.posixCodec.printPath(nestResourcePath(afile)).drop(1))
-        _ <- upload.push(bytes, bucket, key)
+        _ <- uploadImpl.push(bytes, bucket, key)
       } yield ()
   }
 
