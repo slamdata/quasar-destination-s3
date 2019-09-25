@@ -20,14 +20,19 @@ import slamdata.Predef.{Stream => _, _}
 
 import quasar.api.destination.{Destination, DestinationType, ResultSink}
 import quasar.api.push.RenderConfig
+import quasar.api.resource.ResourcePath
+import quasar.connector.{MonadResourceErr, ResourceError}
+import quasar.contrib.pathy.AFile
 
+import cats.Applicative
 import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, ExitCase}
-import cats.syntax.functor._
+import cats.syntax.applicative._
 import cats.syntax.flatMap._
+import cats.syntax.functor._
 import eu.timepit.refined.auto._
 import fs2.Stream
 import monix.catnap.syntax._
-import pathy.Path.posixCodec
+import pathy.Path
 import scalaz.NonEmptyList
 import software.amazon.awssdk.core.async.AsyncRequestBody
 import software.amazon.awssdk.services.s3.S3AsyncClient
@@ -43,17 +48,11 @@ import software.amazon.awssdk.services.s3.model.{
   UploadPartRequest
 }
 
-class S3Destination[F[_]: ConcurrentEffect: ContextShift](
+class S3Destination[F[_]: ConcurrentEffect: ContextShift: MonadResourceErr](
   client: S3AsyncClient,
   config: S3Config,
   partSize: Int) extends Destination[F] {
-
-  import S3Destination.{
-    abortUpload,
-    completeUpload,
-    startUpload,
-    uploadParts
-  }
+  import S3Destination.{ensureAbsFile, push}
 
   def destinationType: DestinationType = DestinationType("s3", 1L)
 
@@ -61,30 +60,49 @@ class S3Destination[F[_]: ConcurrentEffect: ContextShift](
     NonEmptyList(csvSink)
 
   private def csvSink = ResultSink.csv[F](RenderConfig.Csv()) {
-    case (path, _, bytes) => {
-      val key = posixCodec.printPath(path.toPath).drop(1)
-
-      Concurrent[F].bracketCase(
-        startUpload(client, config.bucket, key))(createResponse =>
-        for {
-          parts <- uploadParts(client, bytes, createResponse.uploadId, partSize, config.bucket, key)
-          _ <- completeUpload(client, createResponse.uploadId, config.bucket, key, parts)
-        } yield ()) {
-        case (createResponse, ExitCase.Canceled | ExitCase.Error(_)) =>
-          abortUpload(client, createResponse.uploadId, config.bucket, key).void
-        case (_, ExitCase.Completed) =>
-          Concurrent[F].unit
-      }
-    }
+    case (path, _, bytes) =>
+      ensureAbsFile(path).flatMap(push(client, bytes, config, _, partSize))
   }
 }
 
 object S3Destination {
-  def apply[F[_]: ConcurrentEffect: ContextShift](
+  def apply[F[_]: ConcurrentEffect: ContextShift: MonadResourceErr](
     client: S3AsyncClient,
     config: S3Config,
     partSize: Int): S3Destination[F] =
     new S3Destination[F](client, config, partSize)
+
+  private def ensureAbsFile[F[_]: Applicative: MonadResourceErr](r: ResourcePath): F[AFile] =
+    r.fold(_.pure[F], MonadResourceErr[F].raiseError(ResourceError.notAResource(r)))
+
+  private def nestResourcePath(file: AFile): AFile = {
+    val withoutExtension = Path.fileName(Path.renameFile(file, _.dropExtension)).value
+    val withExtension = Path.fileName(file)
+    val parent = Path.fileParent(file)
+
+    parent </> Path.dir(withoutExtension) </> Path.file1(withExtension)
+  }
+
+  private def push[F[_]: Concurrent](
+    client: S3AsyncClient,
+    bytes: Stream[F, Byte],
+    config: S3Config,
+    path: AFile,
+    partSize: Int): F[Unit] = {
+    val key = Path.posixCodec.printPath(nestResourcePath(path)).drop(1)
+
+    Concurrent[F].bracketCase(
+      startUpload(client, config.bucket, key))(createResponse =>
+      for {
+        parts <- uploadParts(client, bytes, createResponse.uploadId, partSize, config.bucket, key)
+        _ <- completeUpload(client, createResponse.uploadId, config.bucket, key, parts)
+      } yield ()) {
+      case (createResponse, ExitCase.Canceled | ExitCase.Error(_)) =>
+        abortUpload(client, createResponse.uploadId, config.bucket, key).void
+      case (_, ExitCase.Completed) =>
+        Concurrent[F].unit
+    }
+  }
 
   private def startUpload[F[_]: Concurrent](client: S3AsyncClient, bucket: String, key: String)
       : F[CreateMultipartUploadResponse] =
@@ -101,7 +119,7 @@ object S3Destination {
     (bytes.chunkMin(minChunkSize).zipWithIndex evalMap {
       case (byteChunk, n) => {
         // parts numbers must start at 1
-        val partNumber = Int.box((n + 1).toInt)
+        val partNumber = Int.box(n.toInt + 1)
 
         val uploadPartRequest =
           UploadPartRequest.builder

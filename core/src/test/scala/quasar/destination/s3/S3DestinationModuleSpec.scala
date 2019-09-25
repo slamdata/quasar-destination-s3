@@ -19,7 +19,7 @@ package quasar.destination.s3
 import slamdata.Predef._
 
 import quasar.EffectfulQSpec
-import quasar.api.destination.{Destination, DestinationError, DestinationType}
+import quasar.api.destination.{DestinationError, DestinationType}
 import quasar.connector.ResourceError
 import quasar.contrib.scalaz.MonadError_
 
@@ -29,10 +29,9 @@ import scala.concurrent.ExecutionContext
 import scala.concurrent.ExecutionContext.Implicits.global
 
 import argonaut.{Argonaut, Json, Parse}, Argonaut._
-import cats.effect.{Blocker, IO, Resource, Timer}
+import cats.effect.{IO, Resource, Timer}
 import eu.timepit.refined.auto._
-import fs2.{Stream, io, text}
-import org.specs2.mutable.Specification
+import fs2.{io, text}
 import scalaz.NonEmptyList
 
 object S3DestinationModuleSpec extends EffectfulQSpec[IO] {
