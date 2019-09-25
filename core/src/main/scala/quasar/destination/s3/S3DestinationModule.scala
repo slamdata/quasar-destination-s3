@@ -22,6 +22,7 @@ import quasar.api.destination.DestinationError
 import quasar.api.destination.DestinationError.InitializationError
 import quasar.api.destination.{Destination, DestinationType}
 import quasar.connector.{DestinationModule, MonadResourceErr}
+import quasar.destination.s3.impl.DefaultUpload
 
 import scala.util.Either
 
@@ -73,13 +74,14 @@ object S3DestinationModule extends DestinationModule {
     (for {
       cfg <- EitherT(Resource.pure[F, Either[InitializationError[Json], S3Config]](configOrError))
       client <- EitherT(mkClient(cfg).map(_.asRight[InitializationError[Json]]))
+      upload = DefaultUpload(client, PartSize)
       _ <- EitherT(Resource.liftF(isLive(client, sanitizedConfig, cfg.bucket)))
-    } yield (S3Destination(client, cfg, PartSize): Destination[F])).value
+    } yield (S3Destination(cfg.bucket, upload): Destination[F])).value
   }
 
-  private def isLive[F[_]: Async](client: S3AsyncClient, originalConfig: Json, bucket: String)
+  private def isLive[F[_]: Async](client: S3AsyncClient, originalConfig: Json, bucket: Bucket)
       : F[Either[InitializationError[Json], Unit]] =
-    Async[F].delay(client.headBucket(HeadBucketRequest.builder.bucket(bucket).build))
+    Async[F].delay(client.headBucket(HeadBucketRequest.builder.bucket(bucket.value).build))
       .futureLift.as(().asRight[InitializationError[Json]]) recover {
         case (_: NoSuchBucketException) =>
           DestinationError.invalidConfiguration((

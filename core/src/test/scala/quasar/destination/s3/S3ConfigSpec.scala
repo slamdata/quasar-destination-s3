@@ -29,7 +29,7 @@ object S3ConfigSpec extends Specification {
         "region" := "eu-west-1"))
 
     DecodeJson.of[S3Config].decodeJson(sampleConfig).toOption must beSome(
-      S3Config("some-bucket", S3Credentials(
+      S3Config(Bucket("some-bucket"), S3Credentials(
         AccessKey("key1"), SecretKey("key2"), Region("eu-west-1"))))
   }
 
@@ -42,7 +42,7 @@ object S3ConfigSpec extends Specification {
         "region" := "eu-west-1"))
 
     DecodeJson.of[S3Config].decodeJson(sampleConfig).toOption must beSome(
-      S3Config("some-bucket", S3Credentials(
+      S3Config(Bucket("some-bucket"), S3Credentials(
         AccessKey("key1"), SecretKey("key2"), Region("eu-west-1"))))
   }
 }

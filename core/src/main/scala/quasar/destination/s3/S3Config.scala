@@ -21,7 +21,9 @@ import slamdata.Predef._
 import argonaut.{Argonaut, DecodeJson, DecodeResult, EncodeJson, Json}, Argonaut._
 import com.amazonaws.services.s3.AmazonS3URI
 
-final case class S3Config(bucket: String, credentials: S3Credentials)
+final case class Bucket(value: String)
+
+final case class S3Config(bucket: Bucket, credentials: S3Credentials)
 
 final case class AccessKey(value: String)
 final case class SecretKey(value: String)
@@ -43,7 +45,7 @@ object S3Config {
       validatedBucket <- bucketName(url).fold[DecodeResult[String]](
         DecodeResult.fail("Unable to parse bucket from URL", c.history))(DecodeResult.ok(_))
       creds <- c.downField("credentials").as[S3Credentials]
-    } yield S3Config(validatedBucket, creds))
+    } yield S3Config(Bucket(validatedBucket), creds))
 
   private implicit val s3CredentialsEncodeJson: EncodeJson[S3Credentials] =
     EncodeJson(creds => Json.obj(
@@ -53,7 +55,7 @@ object S3Config {
 
   implicit val s3ConfigEncodeJson: EncodeJson[S3Config] =
     EncodeJson(config => Json.obj(
-      "bucket" := config.bucket,
+      "bucket" := config.bucket.value,
       "credentials" := config.credentials.asJson))
 
   private def bucketName(strUrl: String): Option[String] =
