@@ -24,7 +24,7 @@ import quasar.api.resource.ResourcePath
 import quasar.connector.{MonadResourceErr, ResourceError}
 import quasar.contrib.pathy.AFile
 
-import cats.effect.Concurrent
+import cats.effect.{Concurrent, ContextShift}
 import cats.syntax.applicative._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -32,7 +32,8 @@ import eu.timepit.refined.auto._
 import pathy.Path
 import scalaz.NonEmptyList
 
-final class S3Destination[F[_]: Concurrent: MonadResourceErr](bucket: Bucket, uploadImpl: Upload[F])
+final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
+  bucket: Bucket, uploadImpl: Upload[F])
     extends Destination[F] {
   def destinationType: DestinationType = DestinationType("s3", 1L)
 
@@ -61,7 +62,7 @@ final class S3Destination[F[_]: Concurrent: MonadResourceErr](bucket: Bucket, up
 }
 
 object S3Destination {
-  def apply[F[_]: Concurrent: MonadResourceErr](bucket: Bucket, upload: Upload[F])
+  def apply[F[_]: Concurrent: ContextShift: MonadResourceErr](bucket: Bucket, upload: Upload[F])
       : S3Destination[F] =
     new S3Destination[F](bucket, upload)
 }

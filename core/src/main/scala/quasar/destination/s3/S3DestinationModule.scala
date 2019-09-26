@@ -38,7 +38,7 @@ import software.amazon.awssdk.services.s3.model.{
 }
 import cats.Eq
 import cats.data.EitherT
-import cats.effect.{Async, ConcurrentEffect, ContextShift, Resource, Sync, Timer}
+import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, Resource, Timer}
 import cats.instances.int._
 import cats.syntax.applicativeError._
 import cats.syntax.either._
@@ -79,9 +79,9 @@ object S3DestinationModule extends DestinationModule {
     } yield (S3Destination(cfg.bucket, upload): Destination[F])).value
   }
 
-  private def isLive[F[_]: Async](client: S3AsyncClient, originalConfig: Json, bucket: Bucket)
+  private def isLive[F[_]: Concurrent](client: S3AsyncClient, originalConfig: Json, bucket: Bucket)
       : F[Either[InitializationError[Json], Unit]] =
-    Async[F].delay(client.headBucket(HeadBucketRequest.builder.bucket(bucket.value).build))
+    Concurrent[F].delay(client.headBucket(HeadBucketRequest.builder.bucket(bucket.value).build))
       .futureLift.as(().asRight[InitializationError[Json]]) recover {
         case (_: NoSuchBucketException) =>
           DestinationError.invalidConfiguration((
@@ -97,9 +97,9 @@ object S3DestinationModule extends DestinationModule {
             "Access denied")).asLeft
       }
 
-  private def mkClient[F[_]: Sync](cfg: S3Config): Resource[F, S3AsyncClient] = {
+  private def mkClient[F[_]: Concurrent](cfg: S3Config): Resource[F, S3AsyncClient] = {
     val client =
-      Sync[F].delay(
+      Concurrent[F].delay(
         S3AsyncClient
           .builder
           .credentialsProvider(

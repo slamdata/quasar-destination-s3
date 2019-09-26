@@ -20,7 +20,7 @@ import quasar.destination.s3.{Bucket, ObjectKey, Upload}
 
 import slamdata.Predef._
 
-import cats.effect.{Concurrent, ExitCase}
+import cats.effect.{ContextShift, Concurrent, ExitCase}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import fs2.Stream
@@ -40,7 +40,9 @@ import software.amazon.awssdk.services.s3.model.{
   UploadPartRequest
 }
 
-final case class DefaultUpload[F[_]: Concurrent](client: S3AsyncClient, partSize: Int) extends Upload[F] {
+final case class DefaultUpload[F[_]: Concurrent: ContextShift](
+  client: S3AsyncClient, partSize: Int) extends Upload[F] {
+
   def upload(bytes: Stream[F, Byte], bucket: Bucket, key: ObjectKey): F[Unit] =
     Concurrent[F].bracketCase(
       startUpload(client, bucket, key))(createResponse =>
@@ -98,7 +100,7 @@ final case class DefaultUpload[F[_]: Concurrent](client: S3AsyncClient, partSize
     key: ObjectKey,
     parts: List[CompletedPart]): F[CompleteMultipartUploadResponse] = {
     val multipartUpload =
-      CompletedMultipartUpload.builder.parts(parts :_*).build
+      CompletedMultipartUpload.builder.parts(parts: _*).build
 
     val completeMultipartUploadRequest =
       CompleteMultipartUploadRequest.builder

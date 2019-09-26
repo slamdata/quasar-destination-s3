@@ -16,4 +16,4 @@ target/
 /scripts/readVersion
 /secring.pgp.enc
 
-testCredentials.json
+/testCredentials.json
