@@ -52,18 +52,19 @@ object S3DestinationModule extends DestinationModule {
   // Minimum 10MiB multipart uploads
   private val PartSize = 10 * 1024 * 1024
   private val Redacted = "<REDACTED>"
-  private val RedactedCreds = S3Credentials(AccessKey(Redacted), SecretKey(Redacted), Region(Redacted))
+  private val RedactedCreds =
+    S3Credentials(AccessKey(Redacted), SecretKey(Redacted), Region(Redacted))
 
   def destinationType = DestinationType("s3", 1L)
 
   def sanitizeDestinationConfig(config: Json) = config.as[S3Config].result match {
-    case Left(_) => Json.jEmptyObject // don't expose credentials, even if we fail to decode the configuration.
+    case Left(_) =>
+      Json.jEmptyObject // don't expose credentials, even if we fail to decode the configuration.
     case Right(cfg) => cfg.copy(credentials = RedactedCreds).asJson
   }
 
   def destination[F[_]: ConcurrentEffect: ContextShift: MonadResourceErr: Timer](
-      config: Json)
-      : Resource[F, Either[InitializationError[Json], Destination[F]]] = {
+    config: Json): Resource[F, Either[InitializationError[Json], Destination[F]]] = {
 
     val configOrError = config.as[S3Config].toEither.leftMap {
       case (err, _) =>
@@ -81,32 +82,32 @@ object S3DestinationModule extends DestinationModule {
   }
 
   private def isLive[F[_]: Concurrent: ContextShift](
-    client: S3AsyncClient, originalConfig: Json, bucket: Bucket)
-      : F[Either[InitializationError[Json], Unit]] =
-    Concurrent[F].delay(client.headBucket(HeadBucketRequest.builder.bucket(bucket.value).build))
-      .futureLift.guarantee(ContextShift[F].shift).as(().asRight[InitializationError[Json]]) recover {
+    client: S3AsyncClient,
+    originalConfig: Json,
+    bucket: Bucket): F[Either[InitializationError[Json], Unit]] =
+    Concurrent[F]
+      .delay(client.headBucket(HeadBucketRequest.builder.bucket(bucket.value).build))
+      .futureLift
+      .guarantee(ContextShift[F].shift)
+      .as(().asRight[InitializationError[Json]]) recover {
         case (_: NoSuchBucketException) =>
-          DestinationError.invalidConfiguration((
-            destinationType,
-            originalConfig,
-            NonEmptyList("Bucket does not exist"))).asLeft
+          DestinationError
+            .invalidConfiguration(
+              (destinationType, originalConfig, NonEmptyList("Bucket does not exist")))
+            .asLeft
         // eq syntax is buggy in this case. Don't use it. It will lock-up the thread handling the request
         // in slamdata-backend
         case (e: S3Exception) if Eq[Int].eqv(403, e.statusCode) =>
-          DestinationError.accessDenied((
-            destinationType,
-            originalConfig,
-            "Access denied")).asLeft
-      }
+          DestinationError.accessDenied((destinationType, originalConfig, "Access denied")).asLeft
+    }
 
   private def mkClient[F[_]: Concurrent](cfg: S3Config): Resource[F, S3AsyncClient] = {
     val client =
       Concurrent[F].delay(
-        S3AsyncClient
-          .builder
-          .credentialsProvider(
-            StaticCredentialsProvider.create(
-              AwsBasicCredentials.create(
+        S3AsyncClient.builder
+          .credentialsProvider(StaticCredentialsProvider.create(
+            AwsBasicCredentials
+              .create(
                 cfg.credentials.accessKey.value,
                 cfg.credentials.secretKey.value)))
           .region(AwsRegion.of(cfg.credentials.region.value))
