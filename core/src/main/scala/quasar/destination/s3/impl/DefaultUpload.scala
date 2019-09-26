@@ -21,6 +21,7 @@ import quasar.destination.s3.{Bucket, ObjectKey, Upload}
 import slamdata.Predef._
 
 import cats.effect.{ContextShift, Concurrent, ExitCase}
+import cats.effect.syntax.bracket._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import fs2.Stream
@@ -58,8 +59,10 @@ final case class DefaultUpload[F[_]: Concurrent: ContextShift](
 
   private def startUpload(client: S3AsyncClient, bucket: Bucket, key: ObjectKey)
       : F[CreateMultipartUploadResponse] =
-    Concurrent[F].delay(client.createMultipartUpload(
-      CreateMultipartUploadRequest.builder.bucket(bucket.value).key(key.value).build)).futureLift
+    Concurrent[F].delay(
+      client.createMultipartUpload(
+        CreateMultipartUploadRequest.builder.bucket(bucket.value).key(key.value).build))
+      .futureLift.guarantee(ContextShift[F].shift)
 
   private def uploadParts(
     client: S3AsyncClient,
@@ -86,7 +89,8 @@ final case class DefaultUpload[F[_]: Concurrent: ContextShift](
           Concurrent[F].delay(
             client.uploadPart(
               uploadPartRequest,
-              AsyncRequestBody.fromByteBuffer(byteChunk.toByteBuffer))).futureLift
+              AsyncRequestBody.fromByteBuffer(byteChunk.toByteBuffer)))
+            .futureLift.guarantee(ContextShift[F].shift)
 
         uploadPartResponse.map(response =>
           CompletedPart.builder.partNumber(partNumber).eTag(response.eTag).build)
@@ -111,7 +115,8 @@ final case class DefaultUpload[F[_]: Concurrent: ContextShift](
         .build
 
     Concurrent[F].delay(
-      client.completeMultipartUpload(completeMultipartUploadRequest)).futureLift
+      client.completeMultipartUpload(completeMultipartUploadRequest))
+      .futureLift.guarantee(ContextShift[F].shift)
   }
 
   private def abortUpload(
@@ -126,5 +131,5 @@ final case class DefaultUpload[F[_]: Concurrent: ContextShift](
           .uploadId(uploadId)
           .bucket(bucket.value)
           .key(key.value)
-          .build)).futureLift
+          .build)).futureLift.guarantee(ContextShift[F].shift)
 }

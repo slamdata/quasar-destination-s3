@@ -39,6 +39,7 @@ import software.amazon.awssdk.services.s3.model.{
 import cats.Eq
 import cats.data.EitherT
 import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, Resource, Timer}
+import cats.effect.syntax.bracket._
 import cats.instances.int._
 import cats.syntax.applicativeError._
 import cats.syntax.either._
@@ -79,10 +80,11 @@ object S3DestinationModule extends DestinationModule {
     } yield (S3Destination(cfg.bucket, upload): Destination[F])).value
   }
 
-  private def isLive[F[_]: Concurrent](client: S3AsyncClient, originalConfig: Json, bucket: Bucket)
+  private def isLive[F[_]: Concurrent: ContextShift](
+    client: S3AsyncClient, originalConfig: Json, bucket: Bucket)
       : F[Either[InitializationError[Json], Unit]] =
     Concurrent[F].delay(client.headBucket(HeadBucketRequest.builder.bucket(bucket.value).build))
-      .futureLift.as(().asRight[InitializationError[Json]]) recover {
+      .futureLift.guarantee(ContextShift[F].shift).as(().asRight[InitializationError[Json]]) recover {
         case (_: NoSuchBucketException) =>
           DestinationError.invalidConfiguration((
             destinationType,
