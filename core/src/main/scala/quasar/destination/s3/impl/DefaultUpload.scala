@@ -41,12 +41,11 @@ import software.amazon.awssdk.services.s3.model.{
   UploadPartRequest
 }
 
-final case class DefaultUpload[F[_]: Concurrent: ContextShift](
-  client: S3AsyncClient, partSize: Int) extends Upload[F] {
+final case class DefaultUpload[F[_]: Concurrent: ContextShift](client: S3AsyncClient, partSize: Int)
+    extends Upload[F] {
 
   def upload(bytes: Stream[F, Byte], bucket: Bucket, key: ObjectKey): F[Unit] =
-    Concurrent[F].bracketCase(
-      startUpload(client, bucket, key))(createResponse =>
+    Concurrent[F].bracketCase(startUpload(client, bucket, key))(createResponse =>
       for {
         parts <- uploadParts(client, bytes, createResponse.uploadId, partSize, bucket, key)
         _ <- completeUpload(client, createResponse.uploadId, bucket, key, parts)
@@ -57,12 +56,16 @@ final case class DefaultUpload[F[_]: Concurrent: ContextShift](
         Concurrent[F].unit
     }
 
-  private def startUpload(client: S3AsyncClient, bucket: Bucket, key: ObjectKey)
-      : F[CreateMultipartUploadResponse] =
-    Concurrent[F].delay(
-      client.createMultipartUpload(
-        CreateMultipartUploadRequest.builder.bucket(bucket.value).key(key.value).build))
-      .futureLift.guarantee(ContextShift[F].shift)
+  private def startUpload(
+    client: S3AsyncClient,
+    bucket: Bucket,
+    key: ObjectKey): F[CreateMultipartUploadResponse] =
+    Concurrent[F]
+      .delay(
+        client.createMultipartUpload(
+          CreateMultipartUploadRequest.builder.bucket(bucket.value).key(key.value).build))
+      .futureLift
+      .guarantee(ContextShift[F].shift)
 
   private def uploadParts(
     client: S3AsyncClient,
@@ -86,11 +89,13 @@ final case class DefaultUpload[F[_]: Concurrent: ContextShift](
             .build
 
         val uploadPartResponse =
-          Concurrent[F].delay(
-            client.uploadPart(
-              uploadPartRequest,
-              AsyncRequestBody.fromByteBuffer(byteChunk.toByteBuffer)))
-            .futureLift.guarantee(ContextShift[F].shift)
+          Concurrent[F]
+            .delay(
+              client.uploadPart(
+                uploadPartRequest,
+                AsyncRequestBody.fromByteBuffer(byteChunk.toByteBuffer)))
+            .futureLift
+            .guarantee(ContextShift[F].shift)
 
         uploadPartResponse.map(response =>
           CompletedPart.builder.partNumber(partNumber).eTag(response.eTag).build)
@@ -114,9 +119,10 @@ final case class DefaultUpload[F[_]: Concurrent: ContextShift](
         .multipartUpload(multipartUpload)
         .build
 
-    Concurrent[F].delay(
-      client.completeMultipartUpload(completeMultipartUploadRequest))
-      .futureLift.guarantee(ContextShift[F].shift)
+    Concurrent[F]
+      .delay(client.completeMultipartUpload(completeMultipartUploadRequest))
+      .futureLift
+      .guarantee(ContextShift[F].shift)
   }
 
   private def abortUpload(
@@ -124,12 +130,14 @@ final case class DefaultUpload[F[_]: Concurrent: ContextShift](
     uploadId: String,
     bucket: Bucket,
     key: ObjectKey): F[AbortMultipartUploadResponse] =
-    Concurrent[F].delay(
-      client.abortMultipartUpload(
-        AbortMultipartUploadRequest
-          .builder
-          .uploadId(uploadId)
-          .bucket(bucket.value)
-          .key(key.value)
-          .build)).futureLift.guarantee(ContextShift[F].shift)
+    Concurrent[F]
+      .delay(
+        client.abortMultipartUpload(
+          AbortMultipartUploadRequest.builder
+            .uploadId(uploadId)
+            .bucket(bucket.value)
+            .key(key.value)
+            .build))
+      .futureLift
+      .guarantee(ContextShift[F].shift)
 }
