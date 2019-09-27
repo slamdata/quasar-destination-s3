@@ -84,7 +84,7 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
   private def run(upload: Upload[IO], path: ResourcePath, bytes: Stream[IO, Byte]): IO[Unit] =
     findCsvSink(S3Destination[IO](TestBucket, upload).sinks.asCats).fold(
       IO.raiseError[Unit](new Exception("Could not find CSV sink in S3Destination"))
-    )(_.run(path, List(), bytes))
+    )(_.run(path, List(), bytes).compile.drain)
 
   private def findCsvSink(sinks: NonEmptyList[ResultSink[IO]]): Option[ResultSink.Csv[IO]] =
     sinks collectFirstSome {
@@ -97,10 +97,10 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
 }
 
 final class MockUpload(status: Ref[IO, Map[ObjectKey, String]]) extends Upload[IO] {
-  def upload(bytes: Stream[IO, Byte], bucket: Bucket, key: ObjectKey): IO[Unit] =
+  def upload(bytes: Stream[IO, Byte], bucket: Bucket, key: ObjectKey): Stream[IO, Unit] =
     for {
-      data <- bytes.through(text.utf8Decode).compile.string
-      _ <- status.update(_ + (key -> data))
+      data <- bytes.through(text.utf8Decode)
+      _ <- Stream.eval(status.update(_ + (key -> data)))
     } yield ()
 }
 

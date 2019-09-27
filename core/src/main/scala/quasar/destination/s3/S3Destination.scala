@@ -25,11 +25,15 @@ import quasar.connector.{MonadResourceErr, ResourceError}
 import quasar.contrib.pathy.AFile
 
 import cats.effect.{Concurrent, ContextShift}
+
 import cats.syntax.applicative._
-import cats.syntax.flatMap._
-import cats.syntax.functor._
+
 import eu.timepit.refined.auto._
+
+import fs2.Stream
+
 import pathy.Path
+
 import scalaz.NonEmptyList
 
 final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
@@ -43,7 +47,7 @@ final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
   private def csvSink = ResultSink.csv[F](RenderConfig.Csv()) {
     case (path, _, bytes) =>
       for {
-        afile <- ensureAbsFile(path)
+        afile <- Stream.eval(ensureAbsFile(path))
         key = ObjectKey(Path.posixCodec.printPath(nestResourcePath(afile)).drop(1))
         _ <- uploadImpl.upload(bytes, bucket, key)
       } yield ()
