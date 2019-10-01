@@ -30,6 +30,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import cats.data.NonEmptyList
 import cats.effect.concurrent.Ref
 import cats.effect.{IO, Timer}
+import cats.instances.string._
 import cats.syntax.applicativeError._
 import cats.syntax.either._
 import cats.syntax.foldable._
@@ -99,10 +100,8 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
 final class MockUpload(status: Ref[IO, Map[ObjectKey, String]]) extends Upload[IO] {
   def upload(bytes: Stream[IO, Byte], bucket: Bucket, key: ObjectKey): Stream[IO, Unit] =
     for {
-      data <- bytes.through(text.utf8Decode)
-      _ <- Stream.eval(status.update(currentStatus =>
-        currentStatus.get(key).fold(currentStatus + (key -> data))(existingVal =>
-          currentStatus + (key -> (existingVal + data)))))
+      data <- bytes.through(text.utf8Decode).foldMonoid
+      _ <- Stream.eval(status.update(_ + (key -> data)))
     } yield ()
 }
 
