@@ -20,8 +20,9 @@ import quasar.destination.s3.{Bucket, ObjectKey, Upload}
 
 import slamdata.Predef._
 
-import cats.effect.{ContextShift, Concurrent, ExitCase}
 import cats.effect.syntax.bracket._
+import cats.effect.{ContextShift, Concurrent, ExitCase}
+import cats.instances.list._
 import cats.syntax.functor._
 
 import fs2.Stream
@@ -102,7 +103,7 @@ final case class DefaultUpload[F[_]: Concurrent: ContextShift](client: S3AsyncCl
         uploadPartResponse.map(response =>
           CompletedPart.builder.partNumber(partNumber).eTag(response.eTag).build)
       }
-    }).fold(List.empty[CompletedPart])((acc, partResponse) => acc :+ partResponse)
+    }).foldMap(_ :: Nil)
 
   private def completeUpload(
     client: S3AsyncClient,
