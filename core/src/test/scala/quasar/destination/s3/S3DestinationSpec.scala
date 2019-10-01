@@ -100,7 +100,9 @@ final class MockUpload(status: Ref[IO, Map[ObjectKey, String]]) extends Upload[I
   def upload(bytes: Stream[IO, Byte], bucket: Bucket, key: ObjectKey): Stream[IO, Unit] =
     for {
       data <- bytes.through(text.utf8Decode)
-      _ <- Stream.eval(status.update(_ + (key -> data)))
+      _ <- Stream.eval(status.update(currentStatus =>
+        currentStatus.get(key).fold(currentStatus + (key -> data))(existingVal =>
+          currentStatus + (key -> (existingVal + data)))))
     } yield ()
 }
 
