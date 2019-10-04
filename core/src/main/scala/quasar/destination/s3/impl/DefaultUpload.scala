@@ -20,12 +20,15 @@ import quasar.destination.s3.{Bucket, ObjectKey, Upload}
 
 import slamdata.Predef._
 
-import cats.effect.{ContextShift, Concurrent, ExitCase}
 import cats.effect.syntax.bracket._
-import cats.syntax.flatMap._
+import cats.effect.{ContextShift, Concurrent, ExitCase}
+import cats.instances.list._
 import cats.syntax.functor._
+
 import fs2.Stream
+
 import monix.catnap.syntax._
+
 import software.amazon.awssdk.services.s3.S3AsyncClient
 import software.amazon.awssdk.core.async.AsyncRequestBody
 import software.amazon.awssdk.services.s3.S3AsyncClient
@@ -44,17 +47,17 @@ import software.amazon.awssdk.services.s3.model.{
 final case class DefaultUpload[F[_]: Concurrent: ContextShift](client: S3AsyncClient, partSize: Int)
     extends Upload[F] {
 
-  def upload(bytes: Stream[F, Byte], bucket: Bucket, key: ObjectKey): F[Unit] =
-    Concurrent[F].bracketCase(startUpload(client, bucket, key))(createResponse =>
-      for {
-        parts <- uploadParts(client, bytes, createResponse.uploadId, partSize, bucket, key)
-        _ <- completeUpload(client, createResponse.uploadId, bucket, key, parts)
-      } yield ()) {
+  def upload(bytes: Stream[F, Byte], bucket: Bucket, key: ObjectKey): Stream[F, Unit] =
+    Stream.bracketCase(startUpload(client, bucket, key)) {
       case (createResponse, ExitCase.Canceled | ExitCase.Error(_)) =>
         abortUpload(client, createResponse.uploadId, bucket, key).void
       case (_, ExitCase.Completed) =>
         Concurrent[F].unit
-    }
+    } flatMap (createResponse =>
+      for {
+        parts <- uploadParts(client, bytes, createResponse.uploadId, partSize, bucket, key)
+        _ <- Stream.eval(completeUpload(client, createResponse.uploadId, bucket, key, parts))
+      } yield ())
 
   private def startUpload(
     client: S3AsyncClient,
@@ -73,7 +76,7 @@ final case class DefaultUpload[F[_]: Concurrent: ContextShift](client: S3AsyncCl
     uploadId: String,
     minChunkSize: Int,
     bucket: Bucket,
-    key: ObjectKey): F[List[CompletedPart]] =
+    key: ObjectKey): Stream[F, List[CompletedPart]] =
     (bytes.chunkMin(minChunkSize).zipWithIndex evalMap {
       case (byteChunk, n) => {
         // parts numbers must start at 1
@@ -100,7 +103,7 @@ final case class DefaultUpload[F[_]: Concurrent: ContextShift](client: S3AsyncCl
         uploadPartResponse.map(response =>
           CompletedPart.builder.partNumber(partNumber).eTag(response.eTag).build)
       }
-    }).compile.toList
+    }).foldMap(_ :: Nil)
 
   private def completeUpload(
     client: S3AsyncClient,

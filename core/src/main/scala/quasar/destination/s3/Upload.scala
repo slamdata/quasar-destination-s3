@@ -23,5 +23,5 @@ import fs2.Stream
 final case class ObjectKey(value: String)
 
 trait Upload[F[_]] {
-  def upload(bytes: Stream[F, Byte], bucket: Bucket, key: ObjectKey): F[Unit]
+  def upload(bytes: Stream[F, Byte], bucket: Bucket, key: ObjectKey): Stream[F, Unit]
 }
