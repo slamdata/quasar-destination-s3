@@ -18,14 +18,14 @@ package quasar.destination.s3
 
 import slamdata.Predef.{Stream => _, _}
 
-import quasar.api.destination.{Destination, DestinationType, ResultSink}
+import quasar.api.destination.{DestinationType, ResultSink, UntypedDestination}
 import quasar.api.push.RenderConfig
 import quasar.api.resource.ResourcePath
 import quasar.connector.{MonadResourceErr, ResourceError}
 import quasar.contrib.pathy.AFile
 
+import cats.data.NonEmptyList
 import cats.effect.{Concurrent, ContextShift}
-
 import cats.syntax.applicative._
 
 import eu.timepit.refined.auto._
@@ -34,17 +34,16 @@ import fs2.Stream
 
 import pathy.Path
 
-import scalaz.NonEmptyList
-
 final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
   bucket: Bucket, uploadImpl: Upload[F])
-    extends Destination[F] {
+    extends UntypedDestination[F] {
+
   def destinationType: DestinationType = DestinationType("s3", 1L)
 
-  def sinks: NonEmptyList[ResultSink[F]] =
-    NonEmptyList(csvSink)
+  def sinks: NonEmptyList[ResultSink[F, Unit]] =
+    NonEmptyList.one(csvSink)
 
-  private def csvSink = ResultSink.csv[F](RenderConfig.Csv()) {
+  private def csvSink = ResultSink.csv[F, Unit](RenderConfig.Csv()) {
     case (path, _, bytes) =>
       for {
         afile <- Stream.eval(ensureAbsFile(path))
