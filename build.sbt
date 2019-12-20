@@ -11,7 +11,7 @@ val AwsSdkVersion = "2.9.1"
 val AwsV1SdkVersion = "1.11.634"
 val Fs2Version = "1.0.5"
 val MonixVersion = "3.0.0"
-val SpecsVersion = "4.7.0"
+val SpecsVersion = "4.7.1"
 
 // Include to also publish a project's tests
 lazy val publishTestsSettings = Seq(
