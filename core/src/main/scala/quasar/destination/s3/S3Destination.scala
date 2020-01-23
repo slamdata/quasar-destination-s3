@@ -16,11 +16,11 @@
 
 package quasar.destination.s3
 
-import slamdata.Predef.{Stream => _, _}
-
 import quasar.api.destination.{Destination, DestinationType, ResultSink}
 import quasar.api.push.RenderConfig
 import quasar.api.resource.ResourcePath
+import quasar.blobstore.s3.Bucket
+import quasar.blobstore.paths.{BlobPath, PathElem}
 import quasar.connector.{MonadResourceErr, ResourceError}
 import quasar.contrib.pathy.AFile
 
@@ -48,7 +48,8 @@ final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
     case (path, _, bytes) =>
       for {
         afile <- Stream.eval(ensureAbsFile(path))
-        key = ObjectKey(Path.posixCodec.printPath(nestResourcePath(afile)).drop(1))
+        path = ResourcePath.fromPath(nestResourcePath(afile))
+        key = resourcePathToBlobPath(path)
         _ <- uploadImpl.upload(bytes, bucket, key)
       } yield ()
   }
@@ -60,6 +61,12 @@ final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
 
     parent </> Path.dir(withoutExtension) </> Path.file1(withExtension)
   }
+
+  private def resourcePathToBlobPath(rp: ResourcePath): BlobPath =
+    BlobPath(
+      ResourcePath.resourceNamesIso
+        .get(rp)
+        .map(rn => PathElem(rn.value)).toList)
 
   private def ensureAbsFile(r: ResourcePath): F[AFile] =
     r.fold(_.pure[F], MonadResourceErr[F].raiseError(ResourceError.notAResource(r)))

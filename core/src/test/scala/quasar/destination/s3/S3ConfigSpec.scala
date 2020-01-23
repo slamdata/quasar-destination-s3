@@ -16,6 +16,8 @@
 
 package quasar.destination.s3
 
+import quasar.blobstore.s3.{AccessKey, Bucket, Region, SecretKey}
+
 import argonaut.{Argonaut, DecodeJson, Json}, Argonaut._
 import org.specs2.mutable.Specification
 

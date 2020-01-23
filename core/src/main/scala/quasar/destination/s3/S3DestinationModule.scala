@@ -21,6 +21,7 @@ import slamdata.Predef._
 import quasar.api.destination.DestinationError
 import quasar.api.destination.DestinationError.InitializationError
 import quasar.api.destination.{Destination, DestinationType}
+import quasar.blobstore.s3.{AccessKey, Bucket, Region, SecretKey}
 import quasar.connector.{DestinationModule, MonadResourceErr}
 import quasar.destination.s3.impl.DefaultUpload
 

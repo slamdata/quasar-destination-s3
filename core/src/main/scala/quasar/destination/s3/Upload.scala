@@ -18,10 +18,11 @@ package quasar.destination.s3
 
 import slamdata.Predef._
 
+import quasar.blobstore.paths.BlobPath
+import quasar.blobstore.s3.Bucket
+
 import fs2.Stream
 
-final case class ObjectKey(value: String)
-
 trait Upload[F[_]] {
-  def upload(bytes: Stream[F, Byte], bucket: Bucket, key: ObjectKey): Stream[F, Unit]
+  def upload(bytes: Stream[F, Byte], bucket: Bucket, key: BlobPath): Stream[F, Unit]
 }

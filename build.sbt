@@ -7,10 +7,10 @@ scmInfo in ThisBuild := Some(ScmInfo(
   "scm:git@github.com:slamdata/quasar-destination-s3.git"))
 
 val ArgonautVersion = "6.2.3"
+val AsyncBlobstoreVersion = "1.1.0-c5fa45c"
 val AwsSdkVersion = "2.9.1"
 val AwsV1SdkVersion = "1.11.634"
 val Fs2Version = "1.0.5"
-val MonixVersion = "3.0.0"
 val SpecsVersion = "4.8.3"
 
 // Include to also publish a project's tests
@@ -36,12 +36,12 @@ lazy val core = project
     quasarPluginDependencies ++= Seq(
       "io.argonaut"  %% "argonaut" % ArgonautVersion,
       "co.fs2" %% "fs2-core" % Fs2Version,
-      "io.monix" %% "monix-catnap" % MonixVersion,
+      "com.slamdata" %% "async-blobstore-core" % AsyncBlobstoreVersion,
+      "com.slamdata" %% "async-blobstore-s3" % AsyncBlobstoreVersion,
       "software.amazon.awssdk" % "netty-nio-client" % AwsSdkVersion,
       // We depend on both v1 and v2 S3 SDKs because of this ticket:
       // https://github.com/aws/aws-sdk-java-v2/issues/272
       // Depending on both is the recommended workaround
-      "software.amazon.awssdk" % "s3" % AwsSdkVersion,
       "com.amazonaws" % "aws-java-sdk-s3" % AwsV1SdkVersion),
     libraryDependencies ++= Seq(
       "org.specs2" %% "specs2-core" % SpecsVersion % Test,
