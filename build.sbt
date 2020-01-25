@@ -9,7 +9,7 @@ scmInfo in ThisBuild := Some(ScmInfo(
 val ArgonautVersion = "6.2.3"
 val AwsSdkVersion = "2.9.1"
 val AwsV1SdkVersion = "1.11.634"
-val Fs2Version = "1.0.5"
+val Fs2Version = "2.1.0"
 val MonixVersion = "3.0.0"
 val SpecsVersion = "4.8.3"
 
