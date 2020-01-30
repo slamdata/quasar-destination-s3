@@ -32,9 +32,9 @@ import software.amazon.awssdk.services.s3.S3AsyncClient
 final case class DefaultUpload[F[_]: Concurrent: ContextShift: Timer](client: S3AsyncClient, partSize: Int)
     extends Upload[F] {
 
-  def upload(bytes: Stream[F, Byte], bucket: Bucket, key: BlobPath): Stream[F, Unit] = {
+  def upload(bytes: Stream[F, Byte], bucket: Bucket, key: BlobPath): F[Unit] = {
     val service = S3PutService[F](client, partSize, bucket)
 
-    Stream.eval(service((key, bytes))).void
+    service((key, bytes)).void
   }
 }

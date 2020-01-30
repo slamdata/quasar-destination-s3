@@ -26,7 +26,7 @@ import quasar.contrib.pathy.AFile
 
 import cats.effect.{Concurrent, ContextShift}
 
-import cats.syntax.applicative._
+import cats.implicits._
 
 import eu.timepit.refined.auto._
 
@@ -46,12 +46,13 @@ final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
 
   private def csvSink = ResultSink.csv[F](RenderConfig.Csv()) {
     case (path, _, bytes) =>
-      for {
-        afile <- Stream.eval(ensureAbsFile(path))
-        path = ResourcePath.fromPath(nestResourcePath(afile))
-        key = resourcePathToBlobPath(path)
-        _ <- uploadImpl.upload(bytes, bucket, key)
-      } yield ()
+      Stream.eval(
+        for {
+          afile <- ensureAbsFile(path)
+          path = ResourcePath.fromPath(nestResourcePath(afile))
+          key = resourcePathToBlobPath(path)
+          _ <- uploadImpl.upload(bytes, bucket, key)
+        } yield ())
   }
 
   private def nestResourcePath(file: AFile): AFile = {

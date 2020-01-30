@@ -24,5 +24,5 @@ import quasar.blobstore.s3.Bucket
 import fs2.Stream
 
 trait Upload[F[_]] {
-  def upload(bytes: Stream[F, Byte], bucket: Bucket, key: BlobPath): Stream[F, Unit]
+  def upload(bytes: Stream[F, Byte], bucket: Bucket, key: BlobPath): F[Unit]
 }

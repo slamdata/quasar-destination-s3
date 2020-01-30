@@ -96,11 +96,11 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
 }
 
 final class MockUpload(status: Ref[IO, Map[ObjectKey, String]]) extends Upload[IO] {
-  def upload(bytes: Stream[IO, Byte], bucket: Bucket, path: BlobPath): Stream[IO, Unit] =
+  def upload(bytes: Stream[IO, Byte], bucket: Bucket, path: BlobPath): IO[Unit] =
     for {
-      data <- bytes.through(text.utf8Decode).foldMonoid
+      data <- bytes.through(text.utf8Decode).foldMonoid.compile.lastOrError
       key = ObjectKey(path.path.map(_.value).intercalate("/"))
-      _ <- Stream.eval(status.update(_ + (key -> data)))
+      _ <- status.update(_ + (key -> data))
     } yield ()
 }
 
