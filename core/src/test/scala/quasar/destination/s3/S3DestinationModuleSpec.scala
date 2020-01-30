@@ -20,6 +20,7 @@ import slamdata.Predef._
 
 import quasar.EffectfulQSpec
 import quasar.api.destination.{DestinationError, DestinationType}
+import quasar.concurrent.Blocker
 import quasar.connector.ResourceError
 import quasar.contrib.scalaz.MonadError_
 
@@ -36,6 +37,8 @@ import scalaz.NonEmptyList
 
 object S3DestinationModuleSpec extends EffectfulQSpec[IO] {
   implicit val timer: Timer[IO] = IO.timer(ExecutionContext.global)
+
+  val blocker = Blocker.cached("s3-destination-module-spec")
 
   val TestBucket = "https://slamdata-public-test.s3.amazonaws.com"
   val NonExistantBucket = "https://slamdata-public-test-does-not-exist.s3.amazonaws.com"
@@ -89,7 +92,7 @@ object S3DestinationModuleSpec extends EffectfulQSpec[IO] {
 
   def readCredentials: IO[Json] =
     io.file
-      .readAll[IO](FileSystems.getDefault.getPath("testCredentials.json"), ExecutionContext.global, 4096)
+      .readAll[IO](FileSystems.getDefault.getPath("testCredentials.json"), blocker, 4096)
       .through(text.utf8Decode).compile.string
       .flatMap(str =>
         Parse.parse(str).fold(_ => IO.raiseError(new Exception("Couldn't parse testCredentials.json")), IO(_)))
