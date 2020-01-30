@@ -7,10 +7,10 @@ scmInfo in ThisBuild := Some(ScmInfo(
   "scm:git@github.com:slamdata/quasar-destination-s3.git"))
 
 val ArgonautVersion = "6.2.3"
-val AsyncBlobstoreVersion = "2.0.1-1747f94"
+val AsyncBlobstoreVersion = "2.0.1-898e40c"
 val AwsSdkVersion = "2.9.1"
 val AwsV1SdkVersion = "1.11.634"
-val Fs2Version = "1.0.5"
+val Fs2Version = "2.2.1"
 val SpecsVersion = "4.8.3"
 
 // Include to also publish a project's tests
