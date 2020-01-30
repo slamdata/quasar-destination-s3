@@ -21,7 +21,8 @@ import slamdata.Predef._
 import quasar.api.destination.DestinationError
 import quasar.api.destination.DestinationError.InitializationError
 import quasar.api.destination.{Destination, DestinationType}
-import quasar.blobstore.s3.{AccessKey, Bucket, Region, SecretKey}
+import quasar.blobstore.BlobstoreStatus
+import quasar.blobstore.s3.{AccessKey, Bucket, Region, SecretKey, S3StatusService}
 import quasar.connector.{DestinationModule, MonadResourceErr}
 import quasar.destination.s3.impl.DefaultUpload
 
@@ -32,21 +33,10 @@ import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.services.s3.S3AsyncClient
 import software.amazon.awssdk.regions.{Region => AwsRegion}
-import software.amazon.awssdk.services.s3.model.{
-  HeadBucketRequest,
-  NoSuchBucketException,
-  S3Exception
-}
-import cats.Eq
 import cats.data.EitherT
 import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, Resource, Timer}
-import cats.effect.syntax.bracket._
-import cats.instances.int._
-import cats.syntax.applicativeError._
-import cats.syntax.either._
-import cats.syntax.functor._
+import cats.implicits._
 import eu.timepit.refined.auto._
-import monix.catnap.syntax._
 import scalaz.NonEmptyList
 
 object S3DestinationModule extends DestinationModule {
@@ -86,20 +76,23 @@ object S3DestinationModule extends DestinationModule {
     client: S3AsyncClient,
     originalConfig: Json,
     bucket: Bucket): F[Either[InitializationError[Json], Unit]] =
-    Concurrent[F]
-      .delay(client.headBucket(HeadBucketRequest.builder.bucket(bucket.value).build))
-      .futureLift
-      .guarantee(ContextShift[F].shift)
-      .as(().asRight[InitializationError[Json]]) recover {
-        case (_: NoSuchBucketException) =>
-          DestinationError
-            .invalidConfiguration(
-              (destinationType, originalConfig, NonEmptyList("Bucket does not exist")))
-            .asLeft
-        // eq syntax is buggy in this case. Don't use it. It will lock-up the thread handling the request
-        // in slamdata-backend
-        case (e: S3Exception) if Eq[Int].eqv(403, e.statusCode) =>
-          DestinationError.accessDenied((destinationType, originalConfig, "Access denied")).asLeft
+    S3StatusService(client, bucket) map {
+      case BlobstoreStatus.Ok =>
+        ().asRight
+      case BlobstoreStatus.NotFound =>
+        DestinationError
+          .invalidConfiguration(
+            (destinationType, originalConfig, NonEmptyList("Bucket does not exist")))
+          .asLeft
+      case BlobstoreStatus.NoAccess =>
+        DestinationError.accessDenied(
+          (destinationType, originalConfig, "Access denied"))
+          .asLeft
+      case BlobstoreStatus.NotOk(msg) =>
+        DestinationError
+          .invalidConfiguration(
+            (destinationType, originalConfig, NonEmptyList(msg)))
+          .asLeft
     }
 
   private def mkClient[F[_]: Concurrent](cfg: S3Config): Resource[F, S3AsyncClient] = {
