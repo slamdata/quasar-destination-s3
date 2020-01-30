@@ -19,7 +19,7 @@ package quasar.destination.s3
 import slamdata.Predef._
 
 import quasar.EffectfulQSpec
-import quasar.api.destination.ResultSink
+import quasar.api.destination.{DestinationColumn, ResultSink}
 import quasar.api.resource.{ResourceName, ResourcePath}
 import quasar.blobstore.s3.{Bucket, ObjectKey}
 import quasar.blobstore.paths.BlobPath
@@ -34,7 +34,6 @@ import cats.effect.concurrent.Ref
 import cats.effect.{IO, Timer}
 import cats.implicits._
 import fs2.{Stream, text}
-import shims._
 
 object S3DestinationSpec extends EffectfulQSpec[IO] {
   implicit val timer: Timer[IO] = IO.timer(ExecutionContext.global)
@@ -81,11 +80,11 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
   }
 
   private def run(upload: Upload[IO], path: ResourcePath, bytes: Stream[IO, Byte]): IO[Unit] =
-    findCsvSink(S3Destination[IO](TestBucket, upload).sinks.asCats).fold(
+    findCsvSink(S3Destination[IO](TestBucket, upload).sinks).fold(
       IO.raiseError[Unit](new Exception("Could not find CSV sink in S3Destination"))
-    )(_.run(path, List(), bytes).compile.drain)
+    )(_.run(path, NonEmptyList.one(DestinationColumn("test", ())), bytes).compile.drain)
 
-  private def findCsvSink(sinks: NonEmptyList[ResultSink[IO]]): Option[ResultSink.Csv[IO]] =
+  private def findCsvSink(sinks: NonEmptyList[ResultSink[IO, Unit]]): Option[ResultSink.Csv[IO, Unit]] =
     sinks collectFirstSome {
       case csvSink @ ResultSink.Csv(_, _) => csvSink.some
       case _ => None
