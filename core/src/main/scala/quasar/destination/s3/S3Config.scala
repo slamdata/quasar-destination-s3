@@ -18,18 +18,13 @@ package quasar.destination.s3
 
 import slamdata.Predef._
 
+import quasar.blobstore.s3.{Bucket, AccessKey, SecretKey, Region}
+
 import argonaut.{Argonaut, DecodeJson, DecodeResult, EncodeJson, Json}, Argonaut._
 import com.amazonaws.services.s3.AmazonS3URI
 
-final case class Bucket(value: String)
-
-final case class S3Config(bucket: Bucket, credentials: S3Credentials)
-
-final case class AccessKey(value: String)
-final case class SecretKey(value: String)
-final case class Region(value: String)
-
 final case class S3Credentials(accessKey: AccessKey, secretKey: SecretKey, region: Region)
+final case class S3Config(bucket: Bucket, credentials: S3Credentials)
 
 object S3Config {
   implicit val s3CredentialsDecodeJson: DecodeJson[S3Credentials] =

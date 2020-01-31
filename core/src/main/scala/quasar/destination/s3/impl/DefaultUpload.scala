@@ -16,131 +16,25 @@
 
 package quasar.destination.s3.impl
 
-import quasar.destination.s3.{Bucket, ObjectKey, Upload}
+import quasar.destination.s3.Upload
+import quasar.blobstore.s3.{Bucket, S3PutService}
+import quasar.blobstore.paths.BlobPath
 
 import slamdata.Predef._
 
-import cats.effect.syntax.bracket._
-import cats.effect.{ContextShift, Concurrent, ExitCase}
-import cats.instances.list._
-import cats.syntax.functor._
+import cats.effect.{ContextShift, Concurrent, Timer}
+import cats.implicits._
 
 import fs2.Stream
 
-import monix.catnap.syntax._
-
 import software.amazon.awssdk.services.s3.S3AsyncClient
-import software.amazon.awssdk.core.async.AsyncRequestBody
-import software.amazon.awssdk.services.s3.S3AsyncClient
-import software.amazon.awssdk.services.s3.model.{
-  AbortMultipartUploadRequest,
-  AbortMultipartUploadResponse,
-  CompleteMultipartUploadRequest,
-  CompleteMultipartUploadResponse,
-  CompletedMultipartUpload,
-  CompletedPart,
-  CreateMultipartUploadRequest,
-  CreateMultipartUploadResponse,
-  UploadPartRequest
-}
 
-final case class DefaultUpload[F[_]: Concurrent: ContextShift](client: S3AsyncClient, partSize: Int)
+final case class DefaultUpload[F[_]: Concurrent: ContextShift: Timer](client: S3AsyncClient, partSize: Int)
     extends Upload[F] {
 
-  def upload(bytes: Stream[F, Byte], bucket: Bucket, key: ObjectKey): Stream[F, Unit] =
-    Stream.bracketCase(startUpload(client, bucket, key)) {
-      case (createResponse, ExitCase.Canceled | ExitCase.Error(_)) =>
-        abortUpload(client, createResponse.uploadId, bucket, key).void
-      case (_, ExitCase.Completed) =>
-        Concurrent[F].unit
-    } flatMap (createResponse =>
-      for {
-        parts <- uploadParts(client, bytes, createResponse.uploadId, partSize, bucket, key)
-        _ <- Stream.eval(completeUpload(client, createResponse.uploadId, bucket, key, parts))
-      } yield ())
+  def upload(bytes: Stream[F, Byte], bucket: Bucket, key: BlobPath): F[Unit] = {
+    val service = S3PutService[F](client, partSize, bucket)
 
-  private def startUpload(
-    client: S3AsyncClient,
-    bucket: Bucket,
-    key: ObjectKey): F[CreateMultipartUploadResponse] =
-    Concurrent[F]
-      .delay(
-        client.createMultipartUpload(
-          CreateMultipartUploadRequest.builder.bucket(bucket.value).key(key.value).build))
-      .futureLift
-      .guarantee(ContextShift[F].shift)
-
-  private def uploadParts(
-    client: S3AsyncClient,
-    bytes: Stream[F, Byte],
-    uploadId: String,
-    minChunkSize: Int,
-    bucket: Bucket,
-    key: ObjectKey): Stream[F, List[CompletedPart]] =
-    (bytes.chunkMin(minChunkSize).zipWithIndex evalMap {
-      case (byteChunk, n) => {
-        // parts numbers must start at 1
-        val partNumber = Int.box(n.toInt + 1)
-
-        val uploadPartRequest =
-          UploadPartRequest.builder
-            .bucket(bucket.value)
-            .uploadId(uploadId)
-            .key(key.value)
-            .partNumber(partNumber)
-            .contentLength(Long.box(byteChunk.size.toLong))
-            .build
-
-        val uploadPartResponse =
-          Concurrent[F]
-            .delay(
-              client.uploadPart(
-                uploadPartRequest,
-                AsyncRequestBody.fromByteBuffer(byteChunk.toByteBuffer)))
-            .futureLift
-            .guarantee(ContextShift[F].shift)
-
-        uploadPartResponse.map(response =>
-          CompletedPart.builder.partNumber(partNumber).eTag(response.eTag).build)
-      }
-    }).foldMap(_ :: Nil)
-
-  private def completeUpload(
-    client: S3AsyncClient,
-    uploadId: String,
-    bucket: Bucket,
-    key: ObjectKey,
-    parts: List[CompletedPart]): F[CompleteMultipartUploadResponse] = {
-    val multipartUpload =
-      CompletedMultipartUpload.builder.parts(parts: _*).build
-
-    val completeMultipartUploadRequest =
-      CompleteMultipartUploadRequest.builder
-        .bucket(bucket.value)
-        .key(key.value)
-        .uploadId(uploadId)
-        .multipartUpload(multipartUpload)
-        .build
-
-    Concurrent[F]
-      .delay(client.completeMultipartUpload(completeMultipartUploadRequest))
-      .futureLift
-      .guarantee(ContextShift[F].shift)
+    service((key, bytes)).void
   }
-
-  private def abortUpload(
-    client: S3AsyncClient,
-    uploadId: String,
-    bucket: Bucket,
-    key: ObjectKey): F[AbortMultipartUploadResponse] =
-    Concurrent[F]
-      .delay(
-        client.abortMultipartUpload(
-          AbortMultipartUploadRequest.builder
-            .uploadId(uploadId)
-            .bucket(bucket.value)
-            .key(key.value)
-            .build))
-      .futureLift
-      .guarantee(ContextShift[F].shift)
 }

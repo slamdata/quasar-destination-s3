@@ -21,6 +21,8 @@ import slamdata.Predef._
 import quasar.EffectfulQSpec
 import quasar.api.destination.{DestinationColumn, ResultSink}
 import quasar.api.resource.{ResourceName, ResourcePath}
+import quasar.blobstore.s3.{Bucket, ObjectKey}
+import quasar.blobstore.paths.BlobPath
 import quasar.connector.ResourceError
 import quasar.contrib.scalaz.MonadError_
 
@@ -30,11 +32,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import cats.data.NonEmptyList
 import cats.effect.concurrent.Ref
 import cats.effect.{IO, Timer}
-import cats.instances.string._
-import cats.syntax.applicativeError._
-import cats.syntax.either._
-import cats.syntax.foldable._
-import cats.syntax.option._
+import cats.implicits._
 import fs2.{Stream, text}
 
 object S3DestinationSpec extends EffectfulQSpec[IO] {
@@ -97,10 +95,11 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
 }
 
 final class MockUpload(status: Ref[IO, Map[ObjectKey, String]]) extends Upload[IO] {
-  def upload(bytes: Stream[IO, Byte], bucket: Bucket, key: ObjectKey): Stream[IO, Unit] =
+  def upload(bytes: Stream[IO, Byte], bucket: Bucket, path: BlobPath): IO[Unit] =
     for {
-      data <- bytes.through(text.utf8Decode).foldMonoid
-      _ <- Stream.eval(status.update(_ + (key -> data)))
+      data <- bytes.through(text.utf8Decode).foldMonoid.compile.lastOrError
+      key = ObjectKey(path.path.map(_.value).intercalate("/"))
+      _ <- status.update(_ + (key -> data))
     } yield ()
 }
 
