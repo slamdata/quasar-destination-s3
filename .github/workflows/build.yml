@@ -1,4 +1,4 @@
-name: dests3build
+name: destavalanchebuild
 
 on: pull_request
 
@@ -46,10 +46,10 @@ jobs:
       - name: Create scripts dir
         run: mkdir ./scripts
       - name: Run transferPublishAndTagResources
-        run: ./scripts/publishAndTag 'slamdata/quasar-destination-s3'
+        run: ./scripts/publishAndTag 'slamdata/quasar-destination-avalanche'
       - name: Bump Downstream
         run: |
-          bumpInDownstream() { echo $1 > slamdata-destination-s3-version; }
+          bumpInDownstream() { echo $1 > slamdata-destination-avalanche-version; }
           export -f bumpInDownstream
           ./scripts/bumpDependentProject slamdata slamx bumpInDownstream
 
