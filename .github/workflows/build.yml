@@ -19,6 +19,8 @@ jobs:
           java-version: 1.8
       - name: Setup Git Actor
         run: git config github.actor slamdata-bot
+      - name: Decode testCredentials
+        run: base64 -d testCredentials.json.b64 > testCredentials.json
       - name: Compile and test
         run: ./sbt ++${{ matrix.scala }} test
       - name: Upload target
@@ -43,8 +45,6 @@ jobs:
         run: git config github.actor slamdata-bot
       - name: Create scripts dir
         run: mkdir ./scripts
-      - name: Decode testCredentials
-        run: base64 -d testCredentials.json.b64 > testCredentials.json
       - name: Run transferPublishAndTagResources
         run: ./scripts/publishAndTag 'slamdata/quasar-destination-s3'
       - name: Bump Downstream
