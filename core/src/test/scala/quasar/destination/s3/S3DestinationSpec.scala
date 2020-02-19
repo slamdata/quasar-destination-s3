@@ -19,11 +19,13 @@ package quasar.destination.s3
 import slamdata.Predef._
 
 import quasar.EffectfulQSpec
-import quasar.api.destination.{DestinationColumn, ResultSink}
+import quasar.api.Column
 import quasar.api.resource.{ResourceName, ResourcePath}
 import quasar.blobstore.s3.{Bucket, ObjectKey}
 import quasar.blobstore.paths.BlobPath
 import quasar.connector.ResourceError
+import quasar.connector.destination.ResultSink
+import quasar.connector.render.RenderConfig
 import quasar.contrib.scalaz.MonadError_
 
 import scala.concurrent.ExecutionContext
@@ -82,11 +84,11 @@ object S3DestinationSpec extends EffectfulQSpec[IO] {
   private def run(upload: Upload[IO], path: ResourcePath, bytes: Stream[IO, Byte]): IO[Unit] =
     findCsvSink(S3Destination[IO](TestBucket, upload).sinks).fold(
       IO.raiseError[Unit](new Exception("Could not find CSV sink in S3Destination"))
-    )(_.run(path, NonEmptyList.one(DestinationColumn("test", ())), bytes).compile.drain)
+    )(_.consume(path, NonEmptyList.one(Column("test", ())), bytes).compile.drain)
 
-  private def findCsvSink(sinks: NonEmptyList[ResultSink[IO, Unit]]): Option[ResultSink.Csv[IO, Unit]] =
+  private def findCsvSink(sinks: NonEmptyList[ResultSink[IO, Unit]]): Option[ResultSink.CreateSink[IO, Unit]] =
     sinks collectFirstSome {
-      case csvSink @ ResultSink.Csv(_, _) => csvSink.some
+      case csvSink @ ResultSink.CreateSink(_: RenderConfig.Csv, _) => csvSink.some
       case _ => None
     }
 
