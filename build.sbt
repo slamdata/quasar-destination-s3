@@ -9,7 +9,6 @@ scmInfo in ThisBuild := Some(ScmInfo(
   "scm:git@github.com:slamdata/quasar-destination-s3.git"))
 
 val ArgonautVersion = "6.2.3"
-val AsyncBlobstoreVersion = "2.1.0"
 val AwsSdkVersion = "2.9.1"
 val AwsV1SdkVersion = "1.11.634"
 val Fs2Version = "2.1.0"
@@ -19,8 +18,6 @@ val SpecsVersion = "4.8.3"
 // Include to also publish a project's tests
 lazy val publishTestsSettings = Seq(
   publishArtifact in (Test, packageBin) := true)
-
-lazy val QuasarVersion = IO.read(file("./quasar-version")).trim
 
 lazy val root = project
   .in(file("."))
@@ -34,13 +31,13 @@ lazy val core = project
   .settings(
     performMavenCentralSync := false,
     quasarPluginName := "s3-dest",
-    quasarPluginQuasarVersion := QuasarVersion,
+    quasarPluginQuasarVersion := managedVersions.value("slamdata-quasar"),
     quasarPluginDestinationFqcn := Some("quasar.destination.s3.S3DestinationModule$"),
     quasarPluginDependencies ++= Seq(
       "io.argonaut"  %% "argonaut" % ArgonautVersion,
       "co.fs2" %% "fs2-core" % Fs2Version,
-      "com.slamdata" %% "async-blobstore-core" % AsyncBlobstoreVersion,
-      "com.slamdata" %% "async-blobstore-s3" % AsyncBlobstoreVersion,
+      "com.slamdata" %% "async-blobstore-core" % managedVersions.value("slamdata-async-blobstore"),
+      "com.slamdata" %% "async-blobstore-s3" % managedVersions.value("slamdata-async-blobstore"),
       "software.amazon.awssdk" % "netty-nio-client" % AwsSdkVersion,
       "software.amazon.awssdk" % "s3" % AwsSdkVersion,
       // We depend on both v1 and v2 S3 SDKs because of this ticket:
@@ -49,8 +46,8 @@ lazy val core = project
       "com.amazonaws" % "aws-java-sdk-s3" % AwsV1SdkVersion),
     libraryDependencies ++= Seq(
       "org.specs2" %% "specs2-core" % SpecsVersion % Test,
-      "com.slamdata" %% "quasar-foundation" % QuasarVersion,
-      "com.slamdata" %% "quasar-foundation" % QuasarVersion % Test classifier "tests",
+      "com.slamdata" %% "quasar-foundation" % managedVersions.value("slamdata-quasar"),
+      "com.slamdata" %% "quasar-foundation" % managedVersions.value("slamdata-quasar") % Test classifier "tests",
       "org.specs2" %% "specs2-scalacheck" % SpecsVersion % Test,
       "org.specs2" %% "specs2-scalaz" % SpecsVersion % Test),
     publishAsOSSProject := true)
