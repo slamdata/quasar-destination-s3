@@ -10,6 +10,11 @@ scmInfo in ThisBuild := Some(ScmInfo(
   url("https://github.com/precog/quasar-destination-s3"),
   "scm:git@github.com:precog/quasar-destination-s3.git"))
 
+ThisBuild / githubWorkflowBuildPreamble +=
+  WorkflowStep.Run(
+    List("base64 -d testCredentials.json.b64 > testCredentials.json"),
+    name = Some("Decode testCredentials"))
+
 val ArgonautVersion = "6.2.3"
 val AwsSdkVersion = "2.9.1"
 val AwsV1SdkVersion = "1.11.634"
