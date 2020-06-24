@@ -32,8 +32,6 @@ import cats.effect.{Concurrent, ContextShift}
 
 import cats.implicits._
 
-import eu.timepit.refined.auto._
-
 import fs2.Stream
 
 import pathy.Path

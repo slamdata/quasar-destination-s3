@@ -31,7 +31,6 @@ import scala.concurrent.ExecutionContext.Implicits.global
 
 import argonaut.{Argonaut, Json, Parse}, Argonaut._
 import cats.effect.{IO, Resource, Timer}
-import eu.timepit.refined.auto._
 import fs2.{io, text}
 import scalaz.NonEmptyList
 
