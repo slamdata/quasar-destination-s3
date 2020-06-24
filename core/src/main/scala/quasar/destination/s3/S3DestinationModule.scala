@@ -37,7 +37,6 @@ import software.amazon.awssdk.regions.{Region => AwsRegion}
 import cats.data.EitherT
 import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, Resource, Timer}
 import cats.implicits._
-import eu.timepit.refined.auto._
 import scalaz.NonEmptyList
 
 object S3DestinationModule extends DestinationModule {
