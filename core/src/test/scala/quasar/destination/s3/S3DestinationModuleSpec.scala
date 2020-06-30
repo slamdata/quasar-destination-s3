@@ -31,7 +31,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 
 import argonaut.{Argonaut, Json, Parse}, Argonaut._
 import cats.effect.{IO, Resource, Timer}
-import fs2.{io, text}
+import fs2.{io, text, Stream}
 import scalaz.NonEmptyList
 
 object S3DestinationModuleSpec extends EffectfulQSpec[IO] {
@@ -44,16 +44,16 @@ object S3DestinationModuleSpec extends EffectfulQSpec[IO] {
 
   "creates a destination with valid credentials" >>* {
     val destination =
-      Resource.suspend(
-        configWith(TestBucket).map(S3DestinationModule.destination[IO](_)))
+      Resource.suspend(configWith(TestBucket).map(
+        S3DestinationModule.destination[IO](_, _ => _ => Stream.empty)))
 
     destination.use(dst => IO(dst must beRight))
   }
 
   "validates bucket exists" >>* {
     val destination =
-      Resource.suspend(
-        configWith(NonExistantBucket).map(S3DestinationModule.destination[IO](_)))
+      Resource.suspend(configWith(NonExistantBucket).map(
+        S3DestinationModule.destination[IO](_, _ => _ => Stream.empty)))
 
     destination.use(dst => IO(dst must beLeft.like {
       case DestinationError.InvalidConfiguration(dt, _, rs) =>
@@ -70,8 +70,8 @@ object S3DestinationModuleSpec extends EffectfulQSpec[IO] {
           "credentials" := invalidateCredentials(creds)))
 
     val destination =
-      Resource.suspend(
-        config.map(S3DestinationModule.destination[IO](_)))
+      Resource.suspend(config.map(
+        S3DestinationModule.destination[IO](_, _ => _ => Stream.empty)))
 
     destination.use(dst => IO(dst must beLeft.like {
       case DestinationError.AccessDenied(dt, _, msg) =>
