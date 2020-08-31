@@ -32,7 +32,7 @@ import cats.effect.{Concurrent, ContextShift}
 
 import cats.implicits._
 
-import fs2.Stream
+import fs2.{Pipe, Stream}
 
 import pathy.Path
 
@@ -45,15 +45,16 @@ final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
   def sinks: NonEmptyList[ResultSink[F, Unit]] =
     NonEmptyList.one(csvSink)
 
-  private def csvSink = ResultSink.create[F, Unit](RenderConfig.Csv()) {
-    case (path, _, bytes) =>
-      Stream.eval(
-        for {
-          afile <- ensureAbsFile(path)
-          path = ResourcePath.fromPath(nestResourcePath(afile))
-          key = resourcePathToBlobPath(path)
-          _ <- uploadImpl.upload(bytes, bucket, key)
-        } yield ())
+  private def csvSink = ResultSink.create[F, Unit, Byte] { (path, _) =>
+    val pipe: Pipe[F, Byte, Unit] =
+      bytes => Stream.eval(for {
+        afile <- ensureAbsFile(path)
+        path = ResourcePath.fromPath(nestResourcePath(afile))
+        key = resourcePathToBlobPath(path)
+        _ <- uploadImpl.upload(bytes, bucket, key)
+      } yield ())
+
+    (RenderConfig.Csv(), pipe)
   }
 
   private def nestResourcePath(file: AFile): AFile = {
