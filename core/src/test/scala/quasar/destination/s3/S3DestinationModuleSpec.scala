@@ -20,7 +20,7 @@ import slamdata.Predef._
 
 import quasar.EffectfulQSpec
 import quasar.api.destination.{DestinationError, DestinationType}
-import quasar.concurrent.Blocker
+import quasar.concurrent.unsafe._
 import quasar.connector.ResourceError
 import quasar.contrib.scalaz.MonadError_
 
@@ -30,14 +30,14 @@ import scala.concurrent.ExecutionContext
 import scala.concurrent.ExecutionContext.Implicits.global
 
 import argonaut.{Argonaut, Json, Parse}, Argonaut._
-import cats.effect.{IO, Resource, Timer}
+import cats.effect.{Blocker, IO, Resource, Timer}
 import fs2.{io, text, Stream}
 import scalaz.NonEmptyList
 
 object S3DestinationModuleSpec extends EffectfulQSpec[IO] {
   implicit val timer: Timer[IO] = IO.timer(ExecutionContext.global)
 
-  val blocker = Blocker.cached("s3-destination-module-spec")
+  val blocker = Blocker.unsafeCached("s3-destination-module-spec")
 
   val TestBucket = "https://slamdata-public-test.s3.amazonaws.com"
   val NonExistantBucket = "https://slamdata-public-test-does-not-exist.s3.amazonaws.com"
