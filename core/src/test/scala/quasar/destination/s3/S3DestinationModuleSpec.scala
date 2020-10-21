@@ -19,7 +19,6 @@ package quasar.destination.s3
 import slamdata.Predef._
 
 import quasar.EffectfulQSpec
-import quasar.api.destination.{DestinationError, DestinationType}
 import quasar.concurrent.unsafe._
 import quasar.connector.ResourceError
 import quasar.contrib.scalaz.MonadError_
@@ -32,7 +31,6 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import argonaut.{Argonaut, Json, Parse}, Argonaut._
 import cats.effect.{Blocker, IO, Resource, Timer}
 import fs2.{io, text, Stream}
-import scalaz.NonEmptyList
 
 object S3DestinationModuleSpec extends EffectfulQSpec[IO] {
   implicit val timer: Timer[IO] = IO.timer(ExecutionContext.global)
@@ -50,19 +48,15 @@ object S3DestinationModuleSpec extends EffectfulQSpec[IO] {
     destination.use(dst => IO(dst must beRight))
   }
 
-  "validates bucket exists" >>* {
+  "does not validate that bucket exists" >>* {
     val destination =
       Resource.suspend(configWith(NonExistantBucket).map(
         S3DestinationModule.destination[IO](_, _ => _ => Stream.empty)))
 
-    destination.use(dst => IO(dst must beLeft.like {
-      case DestinationError.InvalidConfiguration(dt, _, rs) =>
-        dt must_== DestinationType("s3", 1L)
-        rs must_== NonEmptyList("Bucket does not exist")
-    }))
+    destination.use(dst => IO(dst must beRight))
   }
 
-  "validates credentials work" >>* {
+  "does not validate that credentials work" >>* {
     val config =
       readCredentials.map(creds =>
         Json.obj(
@@ -73,11 +67,7 @@ object S3DestinationModuleSpec extends EffectfulQSpec[IO] {
       Resource.suspend(config.map(
         S3DestinationModule.destination[IO](_, _ => _ => Stream.empty)))
 
-    destination.use(dst => IO(dst must beLeft.like {
-      case DestinationError.AccessDenied(dt, _, msg) =>
-        dt must_== DestinationType("s3", 1L)
-        msg must_== "Access denied"
-    }))
+    destination.use(dst => IO(dst must beRight))
   }
 
   def invalidateCredentials(c: Json): Json =
