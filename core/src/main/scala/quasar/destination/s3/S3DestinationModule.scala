@@ -21,8 +21,7 @@ import slamdata.Predef._
 import quasar.api.destination.DestinationError
 import quasar.api.destination.DestinationError.InitializationError
 import quasar.api.destination.DestinationType
-import quasar.blobstore.BlobstoreStatus
-import quasar.blobstore.s3.{AccessKey, Bucket, Region, SecretKey, S3StatusService}
+import quasar.blobstore.s3.{AccessKey, Region, SecretKey}
 import quasar.connector.MonadResourceErr
 import quasar.connector.destination.{Destination, DestinationModule, PushmiPullyu}
 import quasar.destination.s3.impl.DefaultUpload
@@ -37,7 +36,6 @@ import software.amazon.awssdk.regions.{Region => AwsRegion}
 import cats.data.EitherT
 import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, Resource, Timer}
 import cats.implicits._
-import scalaz.NonEmptyList
 
 object S3DestinationModule extends DestinationModule {
   // Minimum 10MiB multipart uploads
@@ -63,39 +61,12 @@ object S3DestinationModule extends DestinationModule {
         DestinationError.malformedConfiguration((destinationType, config, err))
     }
 
-    val sanitizedConfig = sanitizeDestinationConfig(config)
-
     (for {
       cfg <- EitherT(Resource.pure[F, Either[InitializationError[Json], S3Config]](configOrError))
       client <- EitherT(mkClient(cfg).map(_.asRight[InitializationError[Json]]))
       upload = DefaultUpload(client, PartSize)
-      _ <- EitherT(Resource.liftF(isLive(client, sanitizedConfig, cfg.bucket)))
     } yield (S3Destination(cfg.bucket, upload): Destination[F])).value
   }
-
-  private def isLive[F[_]: Concurrent: ContextShift](
-    client: S3AsyncClient,
-    originalConfig: Json,
-    bucket: Bucket): F[Either[InitializationError[Json], Unit]] =
-    S3StatusService(client, bucket) map {
-      case BlobstoreStatus.Ok =>
-        ().asRight
-      case BlobstoreStatus.NotFound =>
-        DestinationError
-          .invalidConfiguration(
-            (destinationType, originalConfig, NonEmptyList("Bucket does not exist")))
-          .asLeft
-      case BlobstoreStatus.NoAccess =>
-        DestinationError.accessDenied(
-          (destinationType, originalConfig, "Access denied"))
-          .asLeft
-      case BlobstoreStatus.NotOk(msg) =>
-        DestinationError
-          .invalidConfiguration(
-            (destinationType, originalConfig, NonEmptyList(msg)))
-          .asLeft
-    }
-
   private def mkClient[F[_]: Concurrent](cfg: S3Config): Resource[F, S3AsyncClient] = {
     val client =
       Concurrent[F].delay(
