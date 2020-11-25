@@ -16,7 +16,7 @@ ThisBuild / githubWorkflowBuildPreamble +=
     name = Some("Decode testCredentials"))
 
 val ArgonautVersion = "6.2.3"
-val AwsSdkVersion = "2.13.24"
+val AwsSdkVersion = "2.15.34"
 val AwsV1SdkVersion = "1.11.634"
 val Fs2Version = "2.1.0"
 val MonixVersion = "3.0.0"
