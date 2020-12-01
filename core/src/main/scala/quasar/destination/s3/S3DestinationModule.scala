@@ -30,6 +30,7 @@ import quasar.destination.s3.impl.DefaultUpload
 import scala.util.Either
 
 import argonaut.{Argonaut, Json}, Argonaut._
+import com.amazonaws.services.s3.AmazonS3URI
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.services.s3.S3AsyncClient
@@ -65,12 +66,19 @@ object S3DestinationModule extends DestinationModule {
 
     val sanitizedConfig = sanitizeDestinationConfig(config)
 
+    def bucket(bucketUri: BucketUri): Either[InitializationError[Json], Bucket] =
+      (for {
+        uri <- Option(new AmazonS3URI(bucketUri.value))
+        bucket <- Option(uri.getBucket)
+      } yield Bucket(bucket)).toRight(DestinationError.malformedConfiguration((destinationType, config, s"Could not obtain bucket from bucket URI ${bucketUri.value}")))
+
     (for {
       cfg <- EitherT(Resource.pure[F, Either[InitializationError[Json], S3Config]](configOrError))
       client <- EitherT(mkClient(cfg).map(_.asRight[InitializationError[Json]]))
       upload = DefaultUpload(client, PartSize)
-      _ <- EitherT(Resource.liftF(isLive(client, sanitizedConfig, cfg.bucket)))
-    } yield (S3Destination(cfg.bucket, upload): Destination[F])).value
+      bucket <- EitherT(Resource.pure[F, Either[InitializationError[Json], Bucket]](bucket(cfg.bucketUri)))
+      _ <- EitherT(Resource.liftF(isLive(client, sanitizedConfig, bucket)))
+    } yield (S3Destination(bucket, upload): Destination[F])).value
   }
 
   private def isLive[F[_]: Concurrent: ContextShift](
