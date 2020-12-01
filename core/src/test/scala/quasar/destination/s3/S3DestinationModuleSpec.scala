@@ -20,10 +20,12 @@ import slamdata.Predef._
 
 import quasar.EffectfulQSpec
 import quasar.api.destination.{DestinationError, DestinationType}
+import quasar.blobstore.s3.Bucket
 import quasar.concurrent.unsafe._
 import quasar.connector.ResourceError
 import quasar.contrib.scalaz.MonadError_
 
+import java.net.URI
 import java.nio.file.FileSystems
 
 import scala.concurrent.ExecutionContext
@@ -41,6 +43,33 @@ object S3DestinationModuleSpec extends EffectfulQSpec[IO] {
 
   val TestBucket = "https://slamdata-public-test.s3.amazonaws.com"
   val NonExistantBucket = "https://slamdata-public-test-does-not-exist.s3.amazonaws.com"
+
+  "unapplyBucketUri" >> {
+    "virtual host style" >> {
+      S3DestinationModule.unapplyBucketUri(Json.jEmptyString)(BucketUri("https://some-bucket.s3-eu-west-1.amazonaws.com")) must
+        beRight((None, Bucket("some-bucket")))
+    }
+
+    "path-style" >> {
+      S3DestinationModule.unapplyBucketUri(Json.jEmptyString)(BucketUri("https://s3-eu-west-1.amazonaws.com/some-bucket")) must
+        beRight((None, Bucket("some-bucket")))
+    }
+
+    "wasabi" >> {
+      S3DestinationModule.unapplyBucketUri(Json.jEmptyString)(BucketUri("https://s3.wasabisys.com/some-bucket")) must
+        beRight((Some(new URI("https://s3.wasabisys.com")), Bucket("some-bucket")))
+    }
+
+    "virtual host style non-AWS is unsupported" >> {
+      S3DestinationModule.unapplyBucketUri(Json.jEmptyString)(BucketUri("https://some-bucket.s3-eu-west-1.amazonnotaws.com")) must
+        beLeft
+    }
+
+    "invalid S3 endpoint" >> {
+      S3DestinationModule.unapplyBucketUri(Json.jEmptyString)(BucketUri("https://something.com")) must
+        beLeft
+    }
+  }
 
   "creates a destination with valid credentials" >>* {
     val destination =

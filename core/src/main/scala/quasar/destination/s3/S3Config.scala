@@ -18,13 +18,13 @@ package quasar.destination.s3
 
 import slamdata.Predef._
 
-import quasar.blobstore.s3.{Bucket, AccessKey, SecretKey, Region}
+import quasar.blobstore.s3.{AccessKey, SecretKey, Region}
 
-import argonaut.{Argonaut, DecodeJson, DecodeResult, EncodeJson, Json}, Argonaut._
-import com.amazonaws.services.s3.AmazonS3URI
+import argonaut.{Argonaut, DecodeJson, EncodeJson, Json}, Argonaut._
 
 final case class S3Credentials(accessKey: AccessKey, secretKey: SecretKey, region: Region)
-final case class S3Config(bucket: Bucket, credentials: S3Credentials)
+final case class BucketUri(value: String)
+final case class S3Config(bucketUri: BucketUri, credentials: S3Credentials)
 
 object S3Config {
   implicit val s3CredentialsDecodeJson: DecodeJson[S3Credentials] =
@@ -36,11 +36,9 @@ object S3Config {
 
   implicit val s3ConfigDecodeJson: DecodeJson[S3Config] =
     DecodeJson(c => for {
-      url <- c.downField("bucket").as[String]
-      validatedBucket <- bucketName(url).fold[DecodeResult[String]](
-        DecodeResult.fail("Unable to parse bucket from URL", c.history))(DecodeResult.ok(_))
+      uri <- c.downField("bucket").as[String]
       creds <- c.downField("credentials").as[S3Credentials]
-    } yield S3Config(Bucket(validatedBucket), creds))
+    } yield S3Config(BucketUri(uri), creds))
 
   private implicit val s3CredentialsEncodeJson: EncodeJson[S3Credentials] =
     EncodeJson(creds => Json.obj(
@@ -50,9 +48,7 @@ object S3Config {
 
   implicit val s3ConfigEncodeJson: EncodeJson[S3Config] =
     EncodeJson(config => Json.obj(
-      "bucket" := config.bucket.value,
+      "bucket" := config.bucketUri.value,
       "credentials" := config.credentials.asJson))
 
-  private def bucketName(strUrl: String): Option[String] =
-    Option((new AmazonS3URI(strUrl)).getBucket)
 }

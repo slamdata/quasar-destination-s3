@@ -18,6 +18,8 @@ package quasar.destination.s3
 
 import slamdata.Predef._
 
+import java.net.URI
+
 import quasar.api.destination.DestinationError
 import quasar.api.destination.DestinationError.InitializationError
 import quasar.api.destination.DestinationType
@@ -30,6 +32,7 @@ import quasar.destination.s3.impl.DefaultUpload
 import scala.util.Either
 
 import argonaut.{Argonaut, Json}, Argonaut._
+import com.amazonaws.services.s3.AmazonS3URI
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.services.s3.S3AsyncClient
@@ -54,6 +57,17 @@ object S3DestinationModule extends DestinationModule {
     case Right(cfg) => cfg.copy(credentials = RedactedCreds).asJson
   }
 
+  def unapplyBucketUri(config: Json)(bucketUri: BucketUri): Either[InitializationError[Json], (Option[URI], Bucket)] =
+    (for {
+      uri <- Try(new AmazonS3URI(bucketUri.value)).toOption
+      bucket <- Option(uri.getBucket)
+      endpoint <-
+        if (bucketUri.value.contains("amazonaws.com")) Some(None)
+        else
+          if (uri.isPathStyle) Some(Some(new URI(bucketUri.value.stripSuffix(bucket.value).stripSuffix("/"))))
+          else None
+    } yield (endpoint, Bucket(bucket))).toRight(DestinationError.malformedConfiguration((destinationType, config, s"Could not obtain bucket from bucket URI ${bucketUri.value}")))
+
   def destination[F[_]: ConcurrentEffect: ContextShift: MonadResourceErr: Timer](
       config: Json,
       pushPull: PushmiPullyu[F]): Resource[F, Either[InitializationError[Json], Destination[F]]] = {
@@ -67,10 +81,11 @@ object S3DestinationModule extends DestinationModule {
 
     (for {
       cfg <- EitherT(Resource.pure[F, Either[InitializationError[Json], S3Config]](configOrError))
-      client <- EitherT(mkClient(cfg).map(_.asRight[InitializationError[Json]]))
+      (endpoint, bucket) <- EitherT(Resource.pure[F, Either[InitializationError[Json], (Option[URI], Bucket)]](unapplyBucketUri(config)(cfg.bucketUri)))
+      client <- EitherT(mkClient(cfg, endpoint).map(_.asRight[InitializationError[Json]]))
       upload = DefaultUpload(client, PartSize)
-      _ <- EitherT(Resource.liftF(isLive(client, sanitizedConfig, cfg.bucket)))
-    } yield (S3Destination(cfg.bucket, upload): Destination[F])).value
+      _ <- EitherT(Resource.liftF(isLive(client, sanitizedConfig, bucket)))
+    } yield (S3Destination(bucket, upload): Destination[F])).value
   }
 
   private def isLive[F[_]: Concurrent: ContextShift](
@@ -96,17 +111,23 @@ object S3DestinationModule extends DestinationModule {
           .asLeft
     }
 
-  private def mkClient[F[_]: Concurrent](cfg: S3Config): Resource[F, S3AsyncClient] = {
+  private def mkClient[F[_]: Concurrent](cfg: S3Config, endpoint: Option[URI]): Resource[F, S3AsyncClient] = {
     val client =
-      Concurrent[F].delay(
-        S3AsyncClient.builder
-          .credentialsProvider(StaticCredentialsProvider.create(
-            AwsBasicCredentials
-              .create(
-                cfg.credentials.accessKey.value,
-                cfg.credentials.secretKey.value)))
-          .region(AwsRegion.of(cfg.credentials.region.value))
-          .build)
+      Concurrent[F].delay {
+        val builder =
+          S3AsyncClient.builder
+            .credentialsProvider(StaticCredentialsProvider.create(
+              AwsBasicCredentials
+                .create(
+                  cfg.credentials.accessKey.value,
+                  cfg.credentials.secretKey.value)))
+            .region(AwsRegion.of(cfg.credentials.region.value))
+
+        endpoint
+          .map(builder.endpointOverride)
+          .getOrElse(builder)
+          .build
+      }
 
     Resource.fromAutoCloseable[F, S3AsyncClient](client)
   }
