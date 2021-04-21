@@ -1,5 +1,5 @@
 /*
- * Copyright 2014–2019 SlamData Inc.
+ * Copyright 2020 Precog Data
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,41 +16,45 @@
 
 package quasar.destination.s3
 
-import slamdata.Predef.{Stream => _, _}
+import slamdata.Predef._
 
-import quasar.api.destination.{Destination, DestinationType, ResultSink}
-import quasar.api.push.RenderConfig
+import quasar.api.destination.DestinationType
 import quasar.api.resource.ResourcePath
+import quasar.blobstore.s3.Bucket
+import quasar.blobstore.paths.{BlobPath, PathElem}
 import quasar.connector.{MonadResourceErr, ResourceError}
+import quasar.connector.destination.{ResultSink, UntypedDestination}
+import quasar.connector.render.RenderConfig
 import quasar.contrib.pathy.AFile
 
+import cats.data.NonEmptyList
 import cats.effect.{Concurrent, ContextShift}
 
-import cats.syntax.applicative._
+import cats.implicits._
 
-import eu.timepit.refined.auto._
-
-import fs2.Stream
+import fs2.{Pipe, Stream}
 
 import pathy.Path
 
-import scalaz.NonEmptyList
-
 final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
   bucket: Bucket, uploadImpl: Upload[F])
-    extends Destination[F] {
+    extends UntypedDestination[F] {
+
   def destinationType: DestinationType = DestinationType("s3", 1L)
 
-  def sinks: NonEmptyList[ResultSink[F]] =
-    NonEmptyList(csvSink)
+  def sinks: NonEmptyList[ResultSink[F, Unit]] =
+    NonEmptyList.one(csvSink)
 
-  private def csvSink = ResultSink.csv[F](RenderConfig.Csv()) {
-    case (path, _, bytes) =>
-      for {
-        afile <- Stream.eval(ensureAbsFile(path))
-        key = ObjectKey(Path.posixCodec.printPath(nestResourcePath(afile)).drop(1))
+  private def csvSink = ResultSink.create[F, Unit, Byte] { (path, _) =>
+    val pipe: Pipe[F, Byte, Unit] =
+      bytes => Stream.eval(for {
+        afile <- ensureAbsFile(path)
+        path = ResourcePath.fromPath(nestResourcePath(afile))
+        key = resourcePathToBlobPath(path)
         _ <- uploadImpl.upload(bytes, bucket, key)
-      } yield ()
+      } yield ())
+
+    (RenderConfig.Csv(), pipe)
   }
 
   private def nestResourcePath(file: AFile): AFile = {
@@ -60,6 +64,12 @@ final class S3Destination[F[_]: Concurrent: ContextShift: MonadResourceErr](
 
     parent </> Path.dir(withoutExtension) </> Path.file1(withExtension)
   }
+
+  private def resourcePathToBlobPath(rp: ResourcePath): BlobPath =
+    BlobPath(
+      ResourcePath.resourceNamesIso
+        .get(rp)
+        .map(rn => PathElem(rn.value)).toList)
 
   private def ensureAbsFile(r: ResourcePath): F[AFile] =
     r.fold(_.pure[F], MonadResourceErr[F].raiseError(ResourceError.notAResource(r)))

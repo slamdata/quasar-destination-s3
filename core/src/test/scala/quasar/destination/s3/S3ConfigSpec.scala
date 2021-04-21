@@ -1,5 +1,5 @@
 /*
- * Copyright 2014–2019 SlamData Inc.
+ * Copyright 2020 Precog Data
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,33 +16,43 @@
 
 package quasar.destination.s3
 
+import quasar.blobstore.s3.{AccessKey, Region, SecretKey}
+
 import argonaut.{Argonaut, DecodeJson, Json}, Argonaut._
 import org.specs2.mutable.Specification
 
 object S3ConfigSpec extends Specification {
-  "parses a virtual host-style bucket" >> {
-    val sampleConfig = Json.obj(
+  "decodes and encodes configs with a virtual host-style bucket" >> {
+    val json = Json.obj(
       "bucket" := "https://some-bucket.s3-eu-west-1.amazonaws.com",
       "credentials" := Json.obj(
         "accessKey" := "key1",
         "secretKey" := "key2",
         "region" := "eu-west-1"))
 
-    DecodeJson.of[S3Config].decodeJson(sampleConfig).toOption must beSome(
-      S3Config(Bucket("some-bucket"), S3Credentials(
-        AccessKey("key1"), SecretKey("key2"), Region("eu-west-1"))))
+    val cfg = S3Config(
+      BucketUri("https://some-bucket.s3-eu-west-1.amazonaws.com"),
+      S3Credentials(AccessKey("key1"), SecretKey("key2"), Region("eu-west-1")))
+
+    DecodeJson.of[S3Config].decodeJson(json).toOption must beSome(cfg)
+
+    cfg.asJson.as[S3Config].toOption must beSome(cfg)
   }
 
-  "parses a path-style bucket" >> {
-    val sampleConfig = Json.obj(
+  "decodes and encodes configs with a path-style bucket" >> {
+    val json = Json.obj(
       "bucket" := "https://s3-eu-west-1.amazonaws.com/some-bucket",
       "credentials" := Json.obj(
         "accessKey" := "key1",
         "secretKey" := "key2",
         "region" := "eu-west-1"))
 
-    DecodeJson.of[S3Config].decodeJson(sampleConfig).toOption must beSome(
-      S3Config(Bucket("some-bucket"), S3Credentials(
-        AccessKey("key1"), SecretKey("key2"), Region("eu-west-1"))))
+    val cfg = S3Config(
+      BucketUri("https://s3-eu-west-1.amazonaws.com/some-bucket"),
+      S3Credentials(AccessKey("key1"), SecretKey("key2"), Region("eu-west-1")))
+
+    DecodeJson.of[S3Config].decodeJson(json).toOption must beSome(cfg)
+
+    cfg.asJson.as[S3Config].toOption must beSome(cfg)
   }
 }

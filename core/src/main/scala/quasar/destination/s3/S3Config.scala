@@ -1,5 +1,5 @@
 /*
- * Copyright 2014–2019 SlamData Inc.
+ * Copyright 2020 Precog Data
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,18 +18,13 @@ package quasar.destination.s3
 
 import slamdata.Predef._
 
-import argonaut.{Argonaut, DecodeJson, DecodeResult, EncodeJson, Json}, Argonaut._
-import com.amazonaws.services.s3.AmazonS3URI
+import quasar.blobstore.s3.{AccessKey, SecretKey, Region}
 
-final case class Bucket(value: String)
-
-final case class S3Config(bucket: Bucket, credentials: S3Credentials)
-
-final case class AccessKey(value: String)
-final case class SecretKey(value: String)
-final case class Region(value: String)
+import argonaut.{Argonaut, DecodeJson, EncodeJson, Json}, Argonaut._
 
 final case class S3Credentials(accessKey: AccessKey, secretKey: SecretKey, region: Region)
+final case class BucketUri(value: String)
+final case class S3Config(bucketUri: BucketUri, credentials: S3Credentials)
 
 object S3Config {
   implicit val s3CredentialsDecodeJson: DecodeJson[S3Credentials] =
@@ -41,11 +36,9 @@ object S3Config {
 
   implicit val s3ConfigDecodeJson: DecodeJson[S3Config] =
     DecodeJson(c => for {
-      url <- c.downField("bucket").as[String]
-      validatedBucket <- bucketName(url).fold[DecodeResult[String]](
-        DecodeResult.fail("Unable to parse bucket from URL", c.history))(DecodeResult.ok(_))
+      uri <- c.downField("bucket").as[String]
       creds <- c.downField("credentials").as[S3Credentials]
-    } yield S3Config(Bucket(validatedBucket), creds))
+    } yield S3Config(BucketUri(uri), creds))
 
   private implicit val s3CredentialsEncodeJson: EncodeJson[S3Credentials] =
     EncodeJson(creds => Json.obj(
@@ -55,9 +48,7 @@ object S3Config {
 
   implicit val s3ConfigEncodeJson: EncodeJson[S3Config] =
     EncodeJson(config => Json.obj(
-      "bucket" := config.bucket.value,
+      "bucket" := config.bucketUri.value,
       "credentials" := config.credentials.asJson))
 
-  private def bucketName(strUrl: String): Option[String] =
-    Option((new AmazonS3URI(strUrl)).getBucket)
 }

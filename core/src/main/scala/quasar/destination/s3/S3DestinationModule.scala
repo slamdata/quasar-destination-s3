@@ -1,5 +1,5 @@
 /*
- * Copyright 2014–2019 SlamData Inc.
+ * Copyright 2020 Precog Data
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,34 +18,28 @@ package quasar.destination.s3
 
 import slamdata.Predef._
 
+import java.net.URI
+
 import quasar.api.destination.DestinationError
 import quasar.api.destination.DestinationError.InitializationError
-import quasar.api.destination.{Destination, DestinationType}
-import quasar.connector.{DestinationModule, MonadResourceErr}
+import quasar.api.destination.DestinationType
+import quasar.blobstore.BlobstoreStatus
+import quasar.blobstore.s3.{AccessKey, Bucket, Region, SecretKey, S3StatusService}
+import quasar.connector.MonadResourceErr
+import quasar.connector.destination.{Destination, DestinationModule, PushmiPullyu}
 import quasar.destination.s3.impl.DefaultUpload
 
 import scala.util.Either
 
 import argonaut.{Argonaut, Json}, Argonaut._
+import com.amazonaws.services.s3.AmazonS3URI
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.services.s3.S3AsyncClient
 import software.amazon.awssdk.regions.{Region => AwsRegion}
-import software.amazon.awssdk.services.s3.model.{
-  HeadBucketRequest,
-  NoSuchBucketException,
-  S3Exception
-}
-import cats.Eq
 import cats.data.EitherT
 import cats.effect.{Concurrent, ConcurrentEffect, ContextShift, Resource, Timer}
-import cats.effect.syntax.bracket._
-import cats.instances.int._
-import cats.syntax.applicativeError._
-import cats.syntax.either._
-import cats.syntax.functor._
-import eu.timepit.refined.auto._
-import monix.catnap.syntax._
+import cats.implicits._
 import scalaz.NonEmptyList
 
 object S3DestinationModule extends DestinationModule {
@@ -63,8 +57,20 @@ object S3DestinationModule extends DestinationModule {
     case Right(cfg) => cfg.copy(credentials = RedactedCreds).asJson
   }
 
+  def unapplyBucketUri(config: Json)(bucketUri: BucketUri): Either[InitializationError[Json], (Option[URI], Bucket)] =
+    (for {
+      uri <- Try(new AmazonS3URI(bucketUri.value)).toOption
+      bucket <- Option(uri.getBucket)
+      endpoint <-
+        if (bucketUri.value.contains("amazonaws.com")) Some(None)
+        else
+          if (uri.isPathStyle) Some(Some(new URI(bucketUri.value.stripSuffix(bucket.value).stripSuffix("/"))))
+          else None
+    } yield (endpoint, Bucket(bucket))).toRight(DestinationError.malformedConfiguration((destinationType, config, s"Could not obtain bucket from bucket URI ${bucketUri.value}")))
+
   def destination[F[_]: ConcurrentEffect: ContextShift: MonadResourceErr: Timer](
-    config: Json): Resource[F, Either[InitializationError[Json], Destination[F]]] = {
+      config: Json,
+      pushPull: PushmiPullyu[F]): Resource[F, Either[InitializationError[Json], Destination[F]]] = {
 
     val configOrError = config.as[S3Config].toEither.leftMap {
       case (err, _) =>
@@ -75,43 +81,53 @@ object S3DestinationModule extends DestinationModule {
 
     (for {
       cfg <- EitherT(Resource.pure[F, Either[InitializationError[Json], S3Config]](configOrError))
-      client <- EitherT(mkClient(cfg).map(_.asRight[InitializationError[Json]]))
+      (endpoint, bucket) <- EitherT(Resource.pure[F, Either[InitializationError[Json], (Option[URI], Bucket)]](unapplyBucketUri(config)(cfg.bucketUri)))
+      client <- EitherT(mkClient(cfg, endpoint).map(_.asRight[InitializationError[Json]]))
       upload = DefaultUpload(client, PartSize)
-      _ <- EitherT(Resource.liftF(isLive(client, sanitizedConfig, cfg.bucket)))
-    } yield (S3Destination(cfg.bucket, upload): Destination[F])).value
+      _ <- EitherT(Resource.liftF(isLive(client, sanitizedConfig, bucket)))
+    } yield (S3Destination(bucket, upload): Destination[F])).value
   }
 
   private def isLive[F[_]: Concurrent: ContextShift](
     client: S3AsyncClient,
     originalConfig: Json,
     bucket: Bucket): F[Either[InitializationError[Json], Unit]] =
-    Concurrent[F]
-      .delay(client.headBucket(HeadBucketRequest.builder.bucket(bucket.value).build))
-      .futureLift
-      .guarantee(ContextShift[F].shift)
-      .as(().asRight[InitializationError[Json]]) recover {
-        case (_: NoSuchBucketException) =>
-          DestinationError
-            .invalidConfiguration(
-              (destinationType, originalConfig, NonEmptyList("Bucket does not exist")))
-            .asLeft
-        // eq syntax is buggy in this case. Don't use it. It will lock-up the thread handling the request
-        // in slamdata-backend
-        case (e: S3Exception) if Eq[Int].eqv(403, e.statusCode) =>
-          DestinationError.accessDenied((destinationType, originalConfig, "Access denied")).asLeft
+    S3StatusService(client, bucket) map {
+      case BlobstoreStatus.Ok =>
+        ().asRight
+      case BlobstoreStatus.NotFound =>
+        DestinationError
+          .invalidConfiguration(
+            (destinationType, originalConfig, NonEmptyList("Bucket does not exist")))
+          .asLeft
+      case BlobstoreStatus.NoAccess =>
+        DestinationError.accessDenied(
+          (destinationType, originalConfig, "Access denied"))
+          .asLeft
+      case BlobstoreStatus.NotOk(msg) =>
+        DestinationError
+          .invalidConfiguration(
+            (destinationType, originalConfig, NonEmptyList(msg)))
+          .asLeft
     }
 
-  private def mkClient[F[_]: Concurrent](cfg: S3Config): Resource[F, S3AsyncClient] = {
+  private def mkClient[F[_]: Concurrent](cfg: S3Config, endpoint: Option[URI]): Resource[F, S3AsyncClient] = {
     val client =
-      Concurrent[F].delay(
-        S3AsyncClient.builder
-          .credentialsProvider(StaticCredentialsProvider.create(
-            AwsBasicCredentials
-              .create(
-                cfg.credentials.accessKey.value,
-                cfg.credentials.secretKey.value)))
-          .region(AwsRegion.of(cfg.credentials.region.value))
-          .build)
+      Concurrent[F].delay {
+        val builder =
+          S3AsyncClient.builder
+            .credentialsProvider(StaticCredentialsProvider.create(
+              AwsBasicCredentials
+                .create(
+                  cfg.credentials.accessKey.value,
+                  cfg.credentials.secretKey.value)))
+            .region(AwsRegion.of(cfg.credentials.region.value))
+
+        endpoint
+          .map(builder.endpointOverride)
+          .getOrElse(builder)
+          .build
+      }
 
     Resource.fromAutoCloseable[F, S3AsyncClient](client)
   }
