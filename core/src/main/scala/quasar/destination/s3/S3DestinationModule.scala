@@ -84,7 +84,7 @@ object S3DestinationModule extends DestinationModule {
       (endpoint, bucket) <- EitherT(Resource.pure[F, Either[InitializationError[Json], (Option[URI], Bucket)]](unapplyBucketUri(config)(cfg.bucketUri)))
       client <- EitherT(mkClient(cfg, endpoint).map(_.asRight[InitializationError[Json]]))
       upload = DefaultUpload(client, PartSize)
-      _ <- EitherT(Resource.liftF(isLive(client, sanitizedConfig, bucket)))
+      _ <- EitherT(Resource.eval(isLive(client, sanitizedConfig, bucket)))
     } yield (S3Destination(bucket, upload): Destination[F])).value
   }
 
